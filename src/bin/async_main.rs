@@ -4,7 +4,10 @@
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Instant, Timer};
 use esp_backtrace as _;
-use esp_hal::{clock::CpuClock, gpio::{Level, Output}};
+use esp_hal::{
+    clock::CpuClock,
+    gpio::{Level, Output},
+};
 use log::{info, warn};
 
 #[esp_hal_embassy::main]
@@ -42,5 +45,4 @@ async fn led_task(mut led: Output<'static>) {
         led.set_level(!led_level);
         Timer::after(Duration::from_millis(469)).await;
     }
-
 }

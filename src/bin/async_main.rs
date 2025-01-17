@@ -14,7 +14,7 @@ use log::{error, info};
 
 #[allow(dead_code)]
 mod mpu9250 {
-    pub const ADDR: u8 = 0x69; // default addr
+    pub const ADDR: u8 = 0x68; // default addr
 
     macro_rules! mpuregs {
         ($($name:ident : $val:expr),* $(,)?) => {
@@ -65,11 +65,12 @@ async fn main(spawner: Spawner) {
     esp_hal_embassy::init(timer0.timer0);
 
     info!("Embassy initialized!");
-    let _sda = peripherals.GPIO21;
-    let _scl = peripherals.GPIO22;
+
+    let sda = peripherals.GPIO21;
+    let scl = peripherals.GPIO22;
 
     let i2c = match I2c::new(peripherals.I2C1, i2cConfig::default()) {
-        Ok(i2c) => i2c.into_async(),
+        Ok(i2c) => i2c.with_sda(sda).with_scl(scl).into_async(),
         Err(err) => {
             error!("Error setting up i2c: {err}");
             Timer::after(Duration::from_secs(2)).await;
@@ -104,7 +105,7 @@ async fn led_task(mut led: Output<'static>) {
 #[embassy_executor::task]
 async fn read_mpu_data(mut i2c: I2c<'static, Async>) {
     use mpu9250::*;
-    let buffer: &mut [u8] = &mut [ACCEL_XOUT_L];
+    let buffer: &mut [u8; 2] = &mut [TEMP_OUT_H, TEMP_OUT_L];
     loop {
         match i2c.read(ADDR, buffer).await {
             Ok(_) => (),
@@ -115,8 +116,7 @@ async fn read_mpu_data(mut i2c: I2c<'static, Async>) {
             }
         };
 
-        for item in &mut *buffer {
-            info!("Reading: {item}");
-        }
+        let temp = u16::from_be_bytes(*buffer);
+        info!("Temperature reading: {temp} C");
     }
 }

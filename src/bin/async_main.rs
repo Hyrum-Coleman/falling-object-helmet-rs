@@ -5,11 +5,16 @@ use embassy_executor::Spawner;
 use embassy_time::{Duration, Instant, Timer};
 use esp_backtrace as _;
 use esp_hal::i2c::master::{Config as i2cConfig, I2c};
+use esp_hal::ledc::channel::{Channel, ChannelIFace};
+use esp_hal::ledc::timer::TimerIFace;
+use esp_hal::ledc::{channel, timer, LSGlobalClkSource, Ledc, LowSpeed};
+use esp_hal::uart::{Config as UartConfig, Uart};
 use esp_hal::{
     clock::CpuClock,
     gpio::{Level, Output},
     Async,
 };
+use fugit::Rate;
 use log::{error, info};
 
 #[allow(dead_code)]
@@ -78,11 +83,42 @@ async fn main(spawner: Spawner) {
         }
     };
 
-    let led = Output::new(peripherals.GPIO2, Level::Low);
+    let uart = match Uart::new(peripherals.UART1, UartConfig::default()) {
+        Ok(uart) => uart.into_async(),
+        Err(err) => {
+            error!("Error setting up UART1: {err}");
+            Timer::after(Duration::from_secs(2)).await;
+            return;
+        }
+    };
+
+    let builtin_led = Output::new(peripherals.GPIO2, Level::Low);
+
+    let mut ledc = Ledc::new(peripherals.LEDC);
+    ledc.set_global_slow_clock(LSGlobalClkSource::APBClk);
+
+    let mut lstimer0 = ledc.timer::<LowSpeed>(timer::Number::Timer0);
+    lstimer0
+        .configure(timer::config::Config {
+            duty: timer::config::Duty::Duty5Bit,
+            clock_source: timer::LSClockSource::APBClk,
+            frequency: Rate::<u32, 1, 1>::kHz(24),
+        })
+        .unwrap();
+
+    let mut channel0 = ledc.channel(channel::Number::Channel0, peripherals.GPIO4);
+    channel0
+        .configure(channel::config::Config {
+            timer: &lstimer0,
+            duty_pct: 10,
+            pin_config: channel::config::PinConfig::PushPull,
+        })
+        .unwrap();
 
     // TODO: Spawn some tasks
-    let _ = spawner.spawn(led_task(led));
+    let _ = spawner.spawn(led_task(builtin_led));
     let _ = spawner.spawn(read_mpu_data(i2c));
+    let _ = spawner.spawn(read_uart(uart));
 
     loop {
         info!("{} ms | Hello world!", Instant::now().as_millis());
@@ -118,5 +154,31 @@ async fn read_mpu_data(mut i2c: I2c<'static, Async>) {
 
         let temp = u16::from_be_bytes(*buffer);
         info!("Temperature reading: {temp} C");
+    }
+}
+
+#[embassy_executor::task]
+async fn led_strip(led_channel: Channel<'static, LowSpeed>) {
+    led_channel.start_duty_fade(0, 100, 1000).unwrap();
+    while led_channel.is_duty_fade_running() {}
+    led_channel.start_duty_fade(100, 0, 1000).unwrap();
+    while led_channel.is_duty_fade_running() {}
+}
+
+#[embassy_executor::task]
+async fn read_uart(mut uart: Uart<'static, Async>) {
+    let uart_buffer: &mut [u8; 1] = &mut [0];
+
+    loop {
+        match uart.read_async(uart_buffer).await {
+            Ok(_) => {}
+            Err(err) => {
+                error!{"Error reading UART: {err}"};
+                continue;
+            },
+        };
+        let velocity_reading = i8::from_be_bytes(*uart_buffer);
+
+        info!("Reading UART Channel: {velocity_reading}");
     }
 }

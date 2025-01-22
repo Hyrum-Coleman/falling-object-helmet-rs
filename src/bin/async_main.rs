@@ -83,8 +83,7 @@ async fn main(spawner: Spawner) {
         }
     };
 
-    let uart_config = UartConfig::default()
-        .with_baudrate(19200);
+    let uart_config = UartConfig::default().with_baudrate(19200);
 
     let uart = match Uart::new(peripherals.UART2, uart_config) {
         Ok(uart) => uart.into_async(),

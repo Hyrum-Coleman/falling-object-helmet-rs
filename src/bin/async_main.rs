@@ -173,9 +173,9 @@ async fn read_uart(mut uart: Uart<'static, Async>) {
         match uart.read_async(uart_buffer).await {
             Ok(_) => {}
             Err(err) => {
-                error!{"Error reading UART: {err}"};
+                error!("Error reading UART: {err}");
                 continue;
-            },
+            }
         };
         let velocity_reading = i8::from_be_bytes(*uart_buffer);
 

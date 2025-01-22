@@ -15,7 +15,7 @@ use esp_hal::{
     Async,
 };
 use fugit::Rate;
-use log::{error, info};
+use log::{error, info, warn};
 
 #[allow(dead_code)]
 mod mpu9250 {
@@ -83,7 +83,10 @@ async fn main(spawner: Spawner) {
         }
     };
 
-    let uart = match Uart::new(peripherals.UART1, UartConfig::default()) {
+    let uart_config = UartConfig::default()
+        .with_baudrate(19200);
+
+    let uart = match Uart::new(peripherals.UART2, uart_config) {
         Ok(uart) => uart.into_async(),
         Err(err) => {
             error!("Error setting up UART1: {err}");
@@ -117,7 +120,7 @@ async fn main(spawner: Spawner) {
 
     // TODO: Spawn some tasks
     let _ = spawner.spawn(led_task(builtin_led));
-    let _ = spawner.spawn(read_mpu_data(i2c));
+    // let _ = spawner.spawn(read_mpu_data(i2c));
     let _ = spawner.spawn(read_uart(uart));
 
     loop {
@@ -170,6 +173,7 @@ async fn read_uart(mut uart: Uart<'static, Async>) {
     let uart_buffer: &mut [u8; 1] = &mut [0];
 
     loop {
+        warn!("Starting await on uart!~");
         match uart.read_async(uart_buffer).await {
             Ok(_) => {}
             Err(err) => {

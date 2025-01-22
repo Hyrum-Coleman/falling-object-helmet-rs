@@ -20,6 +20,7 @@ esp-backtrace = { version = "0.15.0", features = [
 esp-hal = { version = "0.23.1", features = ["esp32", "unstable"] }
 esp-hal-embassy = { version = "0.6.0", features = ["esp32"] }
 esp-println = { version = "0.13.0", features = ["esp32", "log"] }
+fugit = "0.3.7"
 log = { version = "0.4.21" }
 static_cell = { version = "2.1.0", features = ["nightly"] }
 

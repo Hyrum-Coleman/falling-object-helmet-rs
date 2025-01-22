@@ -503,6 +503,7 @@ dependencies = [
  "esp-hal",
  "esp-hal-embassy",
  "esp-println",
+ "fugit",
  "log",
  "static_cell",
 ]

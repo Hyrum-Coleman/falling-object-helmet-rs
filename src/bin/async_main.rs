@@ -8,7 +8,7 @@ use esp_hal::i2c::master::{Config as i2cConfig, I2c};
 use esp_hal::ledc::channel::{Channel, ChannelIFace};
 use esp_hal::ledc::timer::TimerIFace;
 use esp_hal::ledc::{channel, timer, LSGlobalClkSource, Ledc, LowSpeed};
-use esp_hal::uart::{Config as UartConfig, Uart};
+use esp_hal::uart::{Config as UartConfig, Uart, UartRx};
 use esp_hal::{
     clock::CpuClock,
     gpio::{Level, Output},
@@ -85,8 +85,12 @@ async fn main(spawner: Spawner) {
 
     let uart_config = UartConfig::default().with_baudrate(19200);
 
-    let uart = match Uart::new(peripherals.UART2, uart_config) {
-        Ok(uart) => uart.into_async(),
+    let (tx, _rx) = match Uart::new(peripherals.UART2, uart_config) {
+        Ok(uart) => uart
+            .with_rx(peripherals.GPIO16)
+            .with_tx(peripherals.GPIO17)
+            .into_async()
+            .split(),
         Err(err) => {
             error!("Error setting up UART1: {err}");
             Timer::after(Duration::from_secs(2)).await;
@@ -120,7 +124,7 @@ async fn main(spawner: Spawner) {
     // TODO: Spawn some tasks
     let _ = spawner.spawn(led_task(builtin_led));
     // let _ = spawner.spawn(read_mpu_data(i2c));
-    let _ = spawner.spawn(read_uart(uart));
+    let _ = spawner.spawn(read_uart(tx));
 
     loop {
         info!("{} ms | Hello world!", Instant::now().as_millis());
@@ -168,20 +172,19 @@ async fn led_strip(led_channel: Channel<'static, LowSpeed>) {
 }
 
 #[embassy_executor::task]
-async fn read_uart(mut uart: Uart<'static, Async>) {
-    let uart_buffer: &mut [u8; 1] = &mut [0];
+async fn read_uart(mut uart: UartRx<'static, Async>) {
+    let mut uart_buffer: [u8; 4] = [0u8; 4];
 
     loop {
-        warn!("Starting await on uart!~");
-        match uart.read_async(uart_buffer).await {
-            Ok(_) => {}
-            Err(err) => {
-                error!("Error reading UART: {err}");
-                continue;
-            }
+        let Ok(_len) = uart.read_async(&mut uart_buffer).await else {
+            error!("Error reading UART");
+            continue;
         };
-        let velocity_reading = i8::from_be_bytes(*uart_buffer);
 
-        info!("Reading UART Channel: {velocity_reading}");
+        warn!("UART Buffer: {:?}", uart_buffer);
+
+        let velocity_reading = f32::from_be_bytes(uart_buffer);
+
+        info!("Velocity Reading: {:?}", velocity_reading);
     }
 }

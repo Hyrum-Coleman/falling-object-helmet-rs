@@ -66,15 +66,15 @@ async fn main(spawner: Spawner) {
 
     esp_println::logger::init_logger_from_env();
 
-    let timer0 = esp_hal::timer::timg::TimerGroup::new(peripherals.TIMG1);
-    esp_hal_embassy::init(timer0.timer0);
+    let timer_group0 = esp_hal::timer::timg::TimerGroup::new(peripherals.TIMG1);
+    esp_hal_embassy::init(timer_group0.timer0);
 
     info!("Embassy initialized!");
 
     let sda = peripherals.GPIO21;
     let scl = peripherals.GPIO22;
 
-    let i2c = match I2c::new(peripherals.I2C1, i2cConfig::default()) {
+    let _i2c = match I2c::new(peripherals.I2C1, i2cConfig::default()) {
         Ok(i2c) => i2c.with_sda(sda).with_scl(scl).into_async(),
         Err(err) => {
             error!("Error setting up i2c: {err}");

@@ -85,7 +85,7 @@ async fn main(spawner: Spawner) {
 
     let uart_config = UartConfig::default().with_baudrate(19200);
 
-    let (tx, _rx) = match Uart::new(peripherals.UART2, uart_config) {
+    let (tx, mut rx) = match Uart::new(peripherals.UART2, uart_config) {
         Ok(uart) => uart
             .with_rx(peripherals.GPIO16)
             .with_tx(peripherals.GPIO17)
@@ -98,7 +98,13 @@ async fn main(spawner: Spawner) {
         }
     };
 
-    let builtin_led = Output::new(peripherals.GPIO2, Level::Low);
+    let Ok(_len) = rx.write_async(&[0x49, 0x73]).await else {
+        error!("Error writing to UART");
+        Timer::after(Duration::from_secs(2)).await;
+        return;
+    };
+
+    let haptic = Output::new(peripherals.GPIO4, Level::Low);
 
     let mut ledc = Ledc::new(peripherals.LEDC);
     ledc.set_global_slow_clock(LSGlobalClkSource::APBClk);
@@ -112,7 +118,7 @@ async fn main(spawner: Spawner) {
         })
         .unwrap();
 
-    let mut channel0 = ledc.channel(channel::Number::Channel0, peripherals.GPIO4);
+    let mut channel0 = ledc.channel(channel::Number::Channel0, peripherals.GPIO5);
     channel0
         .configure(channel::config::Config {
             timer: &lstimer0,
@@ -122,7 +128,7 @@ async fn main(spawner: Spawner) {
         .unwrap();
 
     // TODO: Spawn some tasks
-    let _ = spawner.spawn(led_task(builtin_led));
+    let _ = spawner.spawn(haptic_task(haptic));
     // let _ = spawner.spawn(read_mpu_data(i2c));
     let _ = spawner.spawn(read_uart(tx));
 
@@ -135,11 +141,11 @@ async fn main(spawner: Spawner) {
 }
 
 #[embassy_executor::task]
-async fn led_task(mut led: Output<'static>) {
+async fn haptic_task(mut haptic: Output<'static>) {
     loop {
-        let led_level = led.output_level();
-        info!("Setting LED to {:?}", !led_level);
-        led.set_level(!led_level);
+        let haptic_level = haptic.output_level();
+        info!("Setting LED to {:?}", !haptic_level);
+        haptic.set_level(!haptic_level);
         Timer::after(Duration::from_millis(469)).await;
     }
 }

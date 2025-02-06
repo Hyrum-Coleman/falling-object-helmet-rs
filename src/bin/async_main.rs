@@ -2,6 +2,9 @@
 #![no_main]
 
 use embassy_executor::Spawner;
+use embassy_futures::select::select;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::watch::Watch;
 use embassy_time::{Duration, Instant, Timer};
 use esp_backtrace as _;
 use esp_hal::i2c::master::{Config as i2cConfig, I2c};
@@ -14,7 +17,7 @@ use esp_hal::{
     Async,
 };
 use fugit::HertzU32;
-use log::{error, info, warn};
+use log::{error, info};
 use smart_leds::{SmartLedsWrite, RGB8};
 use ws2812_spi::Ws2812;
 
@@ -60,12 +63,14 @@ mod mpu9250 {
 
 const NUM_LEDS: usize = 30;
 
-const RED: RGB8 = RGB8::new(40, 0, 0);
-const YELLOW: RGB8 = RGB8::new(40, 40, 0);
-const GREEN: RGB8 = RGB8::new(0, 40, 0);
+const _RED: RGB8 = RGB8::new(40, 0, 0);
+const _YELLOW: RGB8 = RGB8::new(40, 40, 0);
+const _GREEN: RGB8 = RGB8::new(0, 40, 0);
 const CYAN: RGB8 = RGB8::new(0, 40, 40);
-const BLUE: RGB8 = RGB8::new(0, 0, 40);
-const PURPLE: RGB8 = RGB8::new(40, 0, 40);
+const _BLUE: RGB8 = RGB8::new(0, 0, 40);
+const _PURPLE: RGB8 = RGB8::new(40, 0, 40);
+
+static WATCH: Watch<CriticalSectionRawMutex, bool, 2> = Watch::new();
 
 #[esp_hal_embassy::main]
 async fn main(spawner: Spawner) {
@@ -133,13 +138,13 @@ async fn main(spawner: Spawner) {
     let leds = [RGB8::default(); NUM_LEDS];
     ws.write(leds).unwrap();
 
-    let haptic = Output::new(peripherals.GPIO5, Level::Low);
+    let haptic = Output::new(peripherals.GPIO18, Level::Low);
 
     // TODO: Spawn some tasks
     let _ = spawner.spawn(haptic_task(haptic));
     // let _ = spawner.spawn(read_mpu_data(i2c));
     let _ = spawner.spawn(read_uart(tx));
-    let _ = spawner.spawn(led_strip_rainbow(ws));
+    let _ = spawner.spawn(led_strip_alert_task(ws));
 
     loop {
         info!("{} ms | Hello world!", Instant::now().as_millis());
@@ -152,11 +157,15 @@ async fn main(spawner: Spawner) {
 /// Toggles haptic motor
 #[embassy_executor::task]
 async fn haptic_task(mut haptic: Output<'static>) {
+    let mut receiver = WATCH.dyn_receiver().unwrap();
     loop {
-        let haptic_level = haptic.output_level();
-        info!("Setting LED to {:?}", !haptic_level);
-        haptic.set_level(!haptic_level);
-        Timer::after(Duration::from_millis(469)).await;
+        info!("waiting for watch on haptic");
+        let val = receiver.changed().await;
+
+        match val {
+            true => haptic.set_high(),
+            false => haptic.set_low(),
+        }
     }
 }
 
@@ -184,58 +193,68 @@ async fn read_mpu_data(mut i2c: I2c<'static, Async>) {
 /// Reads UART channel, then attemps to convert recieved bytes into an f32
 /// TODO: UART is probably sending character bytes, which won't cleanly convert to an f32, attempt conversion to char array, then f32
 #[embassy_executor::task]
-async fn read_uart(mut uart: UartRx<'static, Async>) {
-    let mut uart_buffer: [u8; 4] = [0u8; 4];
+async fn read_uart(mut _uart: UartRx<'static, Async>) {
+    let mut _uart_buffer: [u8; 4] = [0u8; 4];
+    let sender = WATCH.dyn_sender();
 
     loop {
-        let Ok(_len) = uart.read_async(&mut uart_buffer).await else {
-            error!("Error reading UART");
-            continue;
-        };
+        Timer::after_secs(10).await;
 
-        warn!("UART Buffer: {:?}", uart_buffer);
+        info!("Set signal true");
+        sender.send(true);
+        Timer::after_secs(5).await;
+        sender.send(false);
+        info!("Set signal false");
+        // let Ok(_len) = uart.read_async(&mut uart_buffer).await else {
+        //     error!("Error reading UART");
+        //     continue;
+        // };
 
-        let velocity_reading = f32::from_be_bytes(uart_buffer);
+        // warn!("UART Buffer: {:?}", uart_buffer);
 
-        info!("Velocity Reading: {:?}", velocity_reading);
+        // let velocity_reading = f32::from_be_bytes(uart_buffer);
+
+        // info!("Velocity Reading: {:?}", velocity_reading);
     }
 }
 
 /// This task is a disaster. Literally copy pasted from an example
 /// Can be updated to better suit our needs
 #[embassy_executor::task]
-async fn led_strip_rainbow(mut ws: Ws2812<Spi<'static, Async>>) {
-    let mut leds = [RGB8::default(); NUM_LEDS];
-    let colors = [RED, GREEN, BLUE];
-    let colors2 = [PURPLE, YELLOW, CYAN];
-
-    let mut led_idx1 = 0;
-    let mut led_idx2 = NUM_LEDS / 2;
-    let mut color_iter1 = colors.into_iter().cycle();
-    let mut color_iter2 = colors2.into_iter().cycle();
-    let mut current_color1 = color_iter1.next().unwrap();
-    let mut current_color2 = color_iter2.next().unwrap();
+async fn led_strip_alert_task(mut ws: Ws2812<Spi<'static, Async>>) {
+    let color_leds = [CYAN; NUM_LEDS];
+    let clear_led = [RGB8::default(); NUM_LEDS];
+    let mut receiver = WATCH.receiver().unwrap();
 
     loop {
-        info!("writing index {led_idx1} and {led_idx2}");
+        let val = receiver.changed().await;
 
-        leds[led_idx1] = current_color1;
-        leds[led_idx2] = current_color2;
+        match val {
+            true => {
+                loop {
+                    ws.write(color_leds).unwrap();
+                    match select(Timer::after_millis(100), receiver.changed()).await {
+                        embassy_futures::select::Either::First(_) => (),
+                        embassy_futures::select::Either::Second(_) => {
+                            ws.write(clear_led).unwrap();
+                            break;
+                        },
+                    };
+                    ws.write(clear_led).unwrap();
+                    match select(Timer::after_millis(100), receiver.changed()).await {
+                        embassy_futures::select::Either::First(_) => (),
+                        embassy_futures::select::Either::Second(_) => {
+                            ws.write(clear_led).unwrap();
+                            break;
+                        },
+                    };
+                }
+            }
+            false => {
+                info!("Turning off LEDS");
 
-        ws.write(leds).unwrap();
-
-        Timer::after(Duration::from_micros(10)).await;
-        led_idx1 = if led_idx1 >= NUM_LEDS - 1 {
-            current_color1 = color_iter1.next().unwrap();
-            0
-        } else {
-            led_idx1 + 1
-        };
-        led_idx2 = if led_idx2 >= NUM_LEDS - 1 {
-            current_color2 = color_iter2.next().unwrap();
-            0
-        } else {
-            led_idx2 + 1
-        };
+                ws.write(clear_led).unwrap();
+            }
+        }
     }
 }

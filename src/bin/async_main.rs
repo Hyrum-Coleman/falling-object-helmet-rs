@@ -5,17 +5,18 @@ use embassy_executor::Spawner;
 use embassy_time::{Duration, Instant, Timer};
 use esp_backtrace as _;
 use esp_hal::i2c::master::{Config as i2cConfig, I2c};
-use esp_hal::ledc::channel::{Channel, ChannelIFace};
-use esp_hal::ledc::timer::TimerIFace;
-use esp_hal::ledc::{channel, timer, LSGlobalClkSource, Ledc, LowSpeed};
+use esp_hal::spi::master::{Config as spiConfig, Spi};
+use esp_hal::spi::Mode;
 use esp_hal::uart::{Config as UartConfig, Uart, UartRx};
 use esp_hal::{
     clock::CpuClock,
     gpio::{Level, Output},
     Async,
 };
-use fugit::Rate;
+use fugit::HertzU32;
 use log::{error, info, warn};
+use smart_leds::{SmartLedsWrite, RGB8};
+use ws2812_spi::Ws2812;
 
 #[allow(dead_code)]
 mod mpu9250 {
@@ -56,6 +57,15 @@ mod mpu9250 {
         GYRO_ZOUT_L: 0x48,
     }
 }
+
+const NUM_LEDS: usize = 30;
+
+const RED: RGB8 = RGB8::new(40, 0, 0);
+const YELLOW: RGB8 = RGB8::new(40, 40, 0);
+const GREEN: RGB8 = RGB8::new(0, 40, 0);
+const CYAN: RGB8 = RGB8::new(0, 40, 40);
+const BLUE: RGB8 = RGB8::new(0, 0, 40);
+const PURPLE: RGB8 = RGB8::new(40, 0, 40);
 
 #[esp_hal_embassy::main]
 async fn main(spawner: Spawner) {
@@ -104,33 +114,32 @@ async fn main(spawner: Spawner) {
         return;
     };
 
-    let haptic = Output::new(peripherals.GPIO4, Level::Low);
+    let led_pin4 = Output::new(peripherals.GPIO4, Level::Low);
+    let spi = match Spi::new(
+        peripherals.SPI2,
+        spiConfig::default()
+            .with_frequency(HertzU32::MHz(3))
+            .with_mode(Mode::_0),
+    ) {
+        Ok(spi) => spi.with_mosi(led_pin4).into_async(),
+        Err(err) => {
+            error!("Error setting up SPI: {:?}", err);
+            Timer::after(Duration::from_secs(2)).await;
+            return;
+        }
+    };
 
-    let mut ledc = Ledc::new(peripherals.LEDC);
-    ledc.set_global_slow_clock(LSGlobalClkSource::APBClk);
+    let mut ws = Ws2812::new(spi);
+    let leds = [RGB8::default(); NUM_LEDS];
+    ws.write(leds).unwrap();
 
-    let mut lstimer0 = ledc.timer::<LowSpeed>(timer::Number::Timer0);
-    lstimer0
-        .configure(timer::config::Config {
-            duty: timer::config::Duty::Duty5Bit,
-            clock_source: timer::LSClockSource::APBClk,
-            frequency: Rate::<u32, 1, 1>::kHz(24),
-        })
-        .unwrap();
-
-    let mut channel0 = ledc.channel(channel::Number::Channel0, peripherals.GPIO5);
-    channel0
-        .configure(channel::config::Config {
-            timer: &lstimer0,
-            duty_pct: 10,
-            pin_config: channel::config::PinConfig::PushPull,
-        })
-        .unwrap();
+    let haptic = Output::new(peripherals.GPIO5, Level::Low);
 
     // TODO: Spawn some tasks
     let _ = spawner.spawn(haptic_task(haptic));
     // let _ = spawner.spawn(read_mpu_data(i2c));
     let _ = spawner.spawn(read_uart(tx));
+    let _ = spawner.spawn(led_strip_rainbow(ws));   
 
     loop {
         info!("{} ms | Hello world!", Instant::now().as_millis());
@@ -189,5 +198,44 @@ async fn read_uart(mut uart: UartRx<'static, Async>) {
         let velocity_reading = f32::from_be_bytes(uart_buffer);
 
         info!("Velocity Reading: {:?}", velocity_reading);
+    }
+}
+
+/// This task is a disaster. Literally copy pasted from an example
+/// Can be updated to better suit our needs
+#[embassy_executor::task]
+async fn led_strip_rainbow(mut ws: Ws2812<Spi<'static, Async>>) {
+    let mut leds = [RGB8::default(); NUM_LEDS];
+    let colors = [RED, GREEN, BLUE];
+    let colors2 = [PURPLE, YELLOW, CYAN];
+
+    let mut led_idx1 = 0;
+    let mut led_idx2 = NUM_LEDS / 2;
+    let mut color_iter1 = colors.into_iter().cycle();
+    let mut color_iter2 = colors2.into_iter().cycle();
+    let mut current_color1 = color_iter1.next().unwrap();
+    let mut current_color2 = color_iter2.next().unwrap();
+
+    loop {
+        info!("writing index {led_idx1} and {led_idx2}");
+
+        leds[led_idx1] = current_color1;
+        leds[led_idx2] = current_color2;
+
+        ws.write(leds).unwrap();
+
+        Timer::after(Duration::from_micros(10)).await;
+        led_idx1 = if led_idx1 >= NUM_LEDS-1 {
+            current_color1 = color_iter1.next().unwrap();
+            0
+        } else {
+            led_idx1 + 1
+        };
+        led_idx2 = if led_idx2 >= NUM_LEDS-1 {
+            current_color2 = color_iter2.next().unwrap();
+            0
+        } else {
+            led_idx2 + 1
+        };
     }
 }

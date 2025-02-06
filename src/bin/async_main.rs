@@ -140,6 +140,7 @@ async fn main(spawner: Spawner) {
     // for inspiration have a look at the examples at https://github.com/esp-rs/esp-hal/tree/v0.23.1/examples/src/bin
 }
 
+/// Toggles haptic motor
 #[embassy_executor::task]
 async fn haptic_task(mut haptic: Output<'static>) {
     loop {
@@ -150,6 +151,8 @@ async fn haptic_task(mut haptic: Output<'static>) {
     }
 }
 
+/// Reads I2C bus, and reports readings
+/// TODO: Figure out wtf is going on with I2C
 #[embassy_executor::task]
 async fn read_mpu_data(mut i2c: I2c<'static, Async>) {
     use mpu9250::*;
@@ -169,14 +172,8 @@ async fn read_mpu_data(mut i2c: I2c<'static, Async>) {
     }
 }
 
-#[embassy_executor::task]
-async fn led_strip(led_channel: Channel<'static, LowSpeed>) {
-    led_channel.start_duty_fade(0, 100, 1000).unwrap();
-    while led_channel.is_duty_fade_running() {}
-    led_channel.start_duty_fade(100, 0, 1000).unwrap();
-    while led_channel.is_duty_fade_running() {}
-}
-
+/// Reads UART channel, then attemps to convert recieved bytes into an f32
+/// TODO: UART is probably sending character bytes, which won't cleanly convert to an f32, attempt conversion to char array, then f32
 #[embassy_executor::task]
 async fn read_uart(mut uart: UartRx<'static, Async>) {
     let mut uart_buffer: [u8; 4] = [0u8; 4];

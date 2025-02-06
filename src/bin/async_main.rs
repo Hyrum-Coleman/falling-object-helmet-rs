@@ -139,7 +139,7 @@ async fn main(spawner: Spawner) {
     let _ = spawner.spawn(haptic_task(haptic));
     // let _ = spawner.spawn(read_mpu_data(i2c));
     let _ = spawner.spawn(read_uart(tx));
-    let _ = spawner.spawn(led_strip_rainbow(ws));   
+    let _ = spawner.spawn(led_strip_rainbow(ws));
 
     loop {
         info!("{} ms | Hello world!", Instant::now().as_millis());
@@ -225,13 +225,13 @@ async fn led_strip_rainbow(mut ws: Ws2812<Spi<'static, Async>>) {
         ws.write(leds).unwrap();
 
         Timer::after(Duration::from_micros(10)).await;
-        led_idx1 = if led_idx1 >= NUM_LEDS-1 {
+        led_idx1 = if led_idx1 >= NUM_LEDS - 1 {
             current_color1 = color_iter1.next().unwrap();
             0
         } else {
             led_idx1 + 1
         };
-        led_idx2 = if led_idx2 >= NUM_LEDS-1 {
+        led_idx2 = if led_idx2 >= NUM_LEDS - 1 {
             current_color2 = color_iter2.next().unwrap();
             0
         } else {

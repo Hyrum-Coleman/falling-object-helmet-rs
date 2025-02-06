@@ -61,6 +61,12 @@ mod mpu9250 {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+enum DetectionStatus {
+    ObjectDetected,
+    Clear,
+}
+
 const NUM_LEDS: usize = 30;
 
 const _RED: RGB8 = RGB8::new(40, 0, 0);
@@ -70,7 +76,7 @@ const CYAN: RGB8 = RGB8::new(0, 40, 40);
 const _BLUE: RGB8 = RGB8::new(0, 0, 40);
 const _PURPLE: RGB8 = RGB8::new(40, 0, 40);
 
-static WATCH: Watch<CriticalSectionRawMutex, bool, 2> = Watch::new();
+static WATCH: Watch<CriticalSectionRawMutex, DetectionStatus, 2> = Watch::new();
 
 #[esp_hal_embassy::main]
 async fn main(spawner: Spawner) {
@@ -163,8 +169,8 @@ async fn haptic_task(mut haptic: Output<'static>) {
         let val = receiver.changed().await;
 
         match val {
-            true => haptic.set_high(),
-            false => haptic.set_low(),
+            DetectionStatus::ObjectDetected => haptic.set_high(),
+            DetectionStatus::Clear => haptic.set_low(),
         }
     }
 }
@@ -201,9 +207,9 @@ async fn read_uart(mut _uart: UartRx<'static, Async>) {
         Timer::after_secs(10).await;
 
         info!("Set signal true");
-        sender.send(true);
+        sender.send(DetectionStatus::ObjectDetected);
         Timer::after_secs(5).await;
-        sender.send(false);
+        sender.send(DetectionStatus::Clear);
         info!("Set signal false");
         // let Ok(_len) = uart.read_async(&mut uart_buffer).await else {
         //     error!("Error reading UART");
@@ -230,7 +236,7 @@ async fn led_strip_alert_task(mut ws: Ws2812<Spi<'static, Async>>) {
         let val = receiver.changed().await;
 
         match val {
-            true => {
+            DetectionStatus::ObjectDetected => {
                 loop {
                     ws.write(color_leds).unwrap();
                     match select(Timer::after_millis(100), receiver.changed()).await {
@@ -250,7 +256,7 @@ async fn led_strip_alert_task(mut ws: Ws2812<Spi<'static, Async>>) {
                     };
                 }
             }
-            false => {
+            DetectionStatus::Clear => {
                 info!("Turning off LEDS");
 
                 ws.write(clear_led).unwrap();

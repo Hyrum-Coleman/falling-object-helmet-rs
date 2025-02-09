@@ -236,26 +236,24 @@ async fn led_strip_alert_task(mut ws: Ws2812<Spi<'static, Async>>) {
         let val = receiver.changed().await;
 
         match val {
-            DetectionStatus::ObjectDetected => {
-                loop {
-                    ws.write(color_leds).unwrap();
-                    match select(Timer::after_millis(100), receiver.changed()).await {
-                        embassy_futures::select::Either::First(_) => (),
-                        embassy_futures::select::Either::Second(_) => {
-                            ws.write(clear_led).unwrap();
-                            break;
-                        },
-                    };
-                    ws.write(clear_led).unwrap();
-                    match select(Timer::after_millis(100), receiver.changed()).await {
-                        embassy_futures::select::Either::First(_) => (),
-                        embassy_futures::select::Either::Second(_) => {
-                            ws.write(clear_led).unwrap();
-                            break;
-                        },
-                    };
-                }
-            }
+            DetectionStatus::ObjectDetected => loop {
+                ws.write(color_leds).unwrap();
+                match select(Timer::after_millis(100), receiver.changed()).await {
+                    embassy_futures::select::Either::First(_) => (),
+                    embassy_futures::select::Either::Second(_) => {
+                        ws.write(clear_led).unwrap();
+                        break;
+                    }
+                };
+                ws.write(clear_led).unwrap();
+                match select(Timer::after_millis(100), receiver.changed()).await {
+                    embassy_futures::select::Either::First(_) => (),
+                    embassy_futures::select::Either::Second(_) => {
+                        ws.write(clear_led).unwrap();
+                        break;
+                    }
+                };
+            },
             DetectionStatus::Clear => {
                 info!("Turning off LEDS");
 

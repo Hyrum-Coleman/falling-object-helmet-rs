@@ -19,7 +19,7 @@ use esp_hal::{
     Async,
 };
 use fugit::HertzU32;
-use log::{error, info, warn};
+use log::{error, info};
 use smart_leds::{SmartLedsWrite, RGB8};
 use ws2812_spi::Ws2812;
 
@@ -214,9 +214,7 @@ async fn read_uart(mut uart: UartRx<'static, Async>) {
 
         // warn!("UART Buffer: {:?}", uart_buffer);
 
-        let troll = unsafe {
-            str::from_utf8_unchecked(&uart_buffer)
-        };
+        let troll = unsafe { str::from_utf8_unchecked(&uart_buffer) };
 
         let velocity_reading = match troll.parse::<f32>() {
             Ok(reading) => reading,
@@ -229,15 +227,15 @@ async fn read_uart(mut uart: UartRx<'static, Async>) {
         match velocity_reading.total_cmp(&1.0) {
             core::cmp::Ordering::Less => {
                 sender.send(DetectionStatus::Clear);
-            },
+            }
             core::cmp::Ordering::Equal => {
                 sender.send(DetectionStatus::ObjectDetected);
                 Timer::after_millis(1000).await;
-            },
+            }
             core::cmp::Ordering::Greater => {
                 sender.send(DetectionStatus::ObjectDetected);
                 Timer::after_millis(1000).await;
-            },
+            }
         };
 
         // info!("Velocity Reading: {:?}", velocity_reading);

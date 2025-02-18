@@ -71,10 +71,10 @@ enum DetectionStatus {
 
 const NUM_LEDS: usize = 30;
 
-const _RED: RGB8 = RGB8::new(40, 0, 0);
+const RED: RGB8 = RGB8::new(40, 0, 0);
 const _YELLOW: RGB8 = RGB8::new(40, 40, 0);
 const _GREEN: RGB8 = RGB8::new(0, 40, 0);
-const CYAN: RGB8 = RGB8::new(0, 40, 40);
+const _CYAN: RGB8 = RGB8::new(0, 40, 40);
 const _BLUE: RGB8 = RGB8::new(0, 0, 40);
 const _PURPLE: RGB8 = RGB8::new(40, 0, 40);
 
@@ -246,7 +246,7 @@ async fn read_uart(mut uart: UartRx<'static, Async>) {
 /// Can be updated to better suit our needs
 #[embassy_executor::task]
 async fn led_strip_alert_task(mut ws: Ws2812<Spi<'static, Async>>) {
-    let color_leds = [CYAN; NUM_LEDS];
+    let color_leds = [RED; NUM_LEDS];
     let clear_led = [RGB8::default(); NUM_LEDS];
     let mut receiver = WATCH.receiver().unwrap();
 

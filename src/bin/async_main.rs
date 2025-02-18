@@ -218,7 +218,7 @@ async fn read_uart(mut uart: UartRx<'static, Async>) {
 
         let velocity_reading = match troll.parse::<f32>() {
             Ok(reading) => reading,
-            Err(err) => {
+            Err(_err) => {
                 // error!("Parse float error: {err:?}");
                 continue;
             }

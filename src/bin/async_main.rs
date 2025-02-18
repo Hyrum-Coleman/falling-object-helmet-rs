@@ -1,6 +1,8 @@
 #![no_std]
 #![no_main]
 
+use core::str;
+
 use embassy_executor::Spawner;
 use embassy_futures::select::select;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -17,7 +19,7 @@ use esp_hal::{
     Async,
 };
 use fugit::HertzU32;
-use log::{error, info};
+use log::{error, info, warn};
 use smart_leds::{SmartLedsWrite, RGB8};
 use ws2812_spi::Ws2812;
 
@@ -104,7 +106,9 @@ async fn main(spawner: Spawner) {
         }
     };
 
-    let uart_config = UartConfig::default().with_baudrate(19200);
+    let uart_config = UartConfig::default()
+        .with_baudrate(19200)
+        .with_stop_bits(esp_hal::uart::StopBits::_1);
 
     let (tx, mut rx) = match Uart::new(peripherals.UART2, uart_config) {
         Ok(uart) => uart
@@ -165,7 +169,6 @@ async fn main(spawner: Spawner) {
 async fn haptic_task(mut haptic: Output<'static>) {
     let mut receiver = WATCH.dyn_receiver().unwrap();
     loop {
-        info!("waiting for watch on haptic");
         let val = receiver.changed().await;
 
         match val {
@@ -199,26 +202,43 @@ async fn read_mpu_data(mut i2c: I2c<'static, Async>) {
 /// Reads UART channel, then attemps to convert recieved bytes into an f32
 /// TODO: UART is probably sending character bytes, which won't cleanly convert to an f32, attempt conversion to char array, then f32
 #[embassy_executor::task]
-async fn read_uart(mut _uart: UartRx<'static, Async>) {
-    let mut _uart_buffer: [u8; 4] = [0u8; 4];
+async fn read_uart(mut uart: UartRx<'static, Async>) {
+    let mut uart_buffer: [u8; 4] = [0u8; 4];
     let sender = WATCH.dyn_sender();
 
     loop {
-        Timer::after_secs(10).await;
-
-        info!("Set signal true");
-        sender.send(DetectionStatus::ObjectDetected);
-        Timer::after_secs(5).await;
-        sender.send(DetectionStatus::Clear);
-        info!("Set signal false");
-        // let Ok(_len) = uart.read_async(&mut uart_buffer).await else {
-        //     error!("Error reading UART");
-        //     continue;
-        // };
+        let Ok(_len) = uart.read_async(&mut uart_buffer).await else {
+            error!("Error reading UART");
+            continue;
+        };
 
         // warn!("UART Buffer: {:?}", uart_buffer);
 
-        // let velocity_reading = f32::from_be_bytes(uart_buffer);
+        let troll = unsafe {
+            str::from_utf8_unchecked(&uart_buffer)
+        };
+
+        let velocity_reading = match troll.parse::<f32>() {
+            Ok(reading) => reading,
+            Err(err) => {
+                // error!("Parse float error: {err:?}");
+                continue;
+            }
+        };
+
+        match velocity_reading.total_cmp(&1.0) {
+            core::cmp::Ordering::Less => {
+                sender.send(DetectionStatus::Clear);
+            },
+            core::cmp::Ordering::Equal => {
+                sender.send(DetectionStatus::ObjectDetected);
+                Timer::after_millis(1000).await;
+            },
+            core::cmp::Ordering::Greater => {
+                sender.send(DetectionStatus::ObjectDetected);
+                Timer::after_millis(1000).await;
+            },
+        };
 
         // info!("Velocity Reading: {:?}", velocity_reading);
     }
@@ -255,8 +275,6 @@ async fn led_strip_alert_task(mut ws: Ws2812<Spi<'static, Async>>) {
                 };
             },
             DetectionStatus::Clear => {
-                info!("Turning off LEDS");
-
                 ws.write(clear_led).unwrap();
             }
         }

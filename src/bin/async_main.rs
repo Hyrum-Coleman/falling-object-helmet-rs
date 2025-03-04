@@ -87,6 +87,9 @@ enum DetectionStatus {
     Clear,
 }
 
+const ALERT_TIME_MILLISECONDS: u16 = 1000;
+const VELOCITY_THRESHOLD: f32 = 3.0;
+
 const NUM_LEDS: usize = 30;
 
 const RED: RGB8 = RGB8::new(40, 0, 0);
@@ -442,6 +445,7 @@ async fn read_uart(
             };
         }
 
+        
         let velocity_reading = haha[1];
         let time_stamp = haha[0];
 
@@ -457,17 +461,17 @@ async fn read_uart(
 
         signals.signal((velocity_reading, time_stamp));
 
-        match velocity_reading.total_cmp(&3.0) {
+        match velocity_reading.total_cmp(&VELOCITY_THRESHOLD) {
             core::cmp::Ordering::Less => {
                 sender.send(DetectionStatus::Clear);
             }
             core::cmp::Ordering::Equal => {
                 sender.send(DetectionStatus::ObjectDetected);
-                Timer::after_millis(1000).await;
+                Timer::after_millis(ALERT_TIME_MILLISECONDS.into()).await;
             }
             core::cmp::Ordering::Greater => {
                 sender.send(DetectionStatus::ObjectDetected);
-                Timer::after_millis(1000).await;
+                Timer::after_millis(ALERT_TIME_MILLISECONDS.into()).await;
             }
         };
 

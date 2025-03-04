@@ -3,6 +3,8 @@ runner = "espflash flash --monitor"
 
 [env]
 ESP_LOG="INFO"
+SSID = "SSID"
+PASSWORD = "PASSWORD"
 
 [build]
 rustflags = [
@@ -12,4 +14,4 @@ rustflags = [
 target = "xtensa-esp32-none-elf"
 
 [unstable]
-build-std = ["core"]
+build-std = ["core", "alloc"]

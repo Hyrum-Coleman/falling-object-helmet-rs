@@ -501,17 +501,12 @@ async fn read_uart(
 
         info!("{}", sensor_ascii);
 
-        let mut variables: [f32; 2] = [0.0; 2];
-        for (i, var) in sensor_ascii.trim().split(',').enumerate() {
-            //info!("{}", var);
-            variables[i] = match var.trim().parse::<f32>() {
-                Ok(reading) => reading,
-                Err(_err) => {
-                    error!("Parse float error: {_err:?}:{var}");
-                    continue;
-                }
-            };
-        }
+        let variables: Vec<f32, 2> = sensor_ascii
+            .trim()
+            .split(',')
+            .enumerate()
+            .flat_map(|(_i, var)| var.parse::<f32>())
+            .collect();
 
         let sensor_data = SensorData::new(variables[1], variables[0]);
 

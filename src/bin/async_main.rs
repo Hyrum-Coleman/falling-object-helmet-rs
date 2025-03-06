@@ -7,7 +7,7 @@ use embassy_executor::Spawner;
 use embassy_futures::select::select;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::Watch;
-use embassy_time::{Duration, Instant, Timer};
+use embassy_time::{Duration, Timer};
 use esp_alloc as _;
 use esp_backtrace as _;
 use esp_backtrace as _;
@@ -26,6 +26,9 @@ use heapless::Vec;
 use log::{error, info};
 use smart_leds::{SmartLedsWrite, RGB8};
 use ws2812_spi::Ws2812;
+
+#[cfg(not(feature = "wifi"))]
+use embassy_time::Instant;
 
 #[cfg(feature = "wifi")]
 use {

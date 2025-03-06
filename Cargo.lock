@@ -610,6 +610,7 @@ dependencies = [
  "esp-println",
  "esp-wifi",
  "fugit",
+ "heapless",
  "log",
  "smart-leds",
  "smoltcp",

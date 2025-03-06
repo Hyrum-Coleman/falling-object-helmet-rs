@@ -2,18 +2,12 @@
 #![no_main]
 
 use core::ffi::CStr;
-use core::str;
 
-use core::net::Ipv4Addr;
 use embassy_executor::Spawner;
-use embassy_futures::select::{select, Either};
-use embassy_net::{
-    tcp::TcpSocket, IpListenEndpoint, Ipv4Cidr, Runner, StackResources, StaticConfigV4,
-};
+use embassy_futures::select::select;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::signal::Signal;
 use embassy_sync::watch::Watch;
-use embassy_time::{Duration, Timer};
+use embassy_time::{Duration, Instant, Timer};
 use esp_alloc as _;
 use esp_backtrace as _;
 use esp_backtrace as _;
@@ -24,22 +18,32 @@ use esp_hal::uart::{Config as UartConfig, Uart, UartRx};
 use esp_hal::{
     clock::CpuClock,
     gpio::{Level, Output},
-    rng::Rng,
     Async,
 };
-use esp_println::println;
-use esp_wifi::{
-    init,
-    wifi::{
-        AccessPointConfiguration, ClientConfiguration, Configuration, WifiController, WifiDevice,
-        WifiEvent, WifiState,
-    },
-    EspWifiController,
-};
+use esp_println;
 use fugit::HertzU32;
 use log::{error, info};
 use smart_leds::{SmartLedsWrite, RGB8};
 use ws2812_spi::Ws2812;
+
+#[cfg(feature = "wifi")]
+use {
+    core::net::Ipv4Addr,
+    embassy_futures::select::Either,
+    embassy_net::{
+        tcp::TcpSocket, IpListenEndpoint, Ipv4Cidr, Runner, StackResources, StaticConfigV4,
+    },
+    embassy_sync::signal::Signal,
+    esp_hal::rng::Rng,
+    esp_wifi::{
+        init,
+        wifi::{
+            AccessPointConfiguration, ClientConfiguration, Configuration, WifiController,
+            WifiDevice, WifiEvent, WifiState,
+        },
+        EspWifiController,
+    },
+};
 
 #[allow(dead_code)]
 mod mpu9250 {
@@ -87,6 +91,18 @@ enum DetectionStatus {
     Clear,
 }
 
+#[derive(Clone)]
+struct SensorData {
+    velocity: f32,
+    time: f32,
+}
+
+impl SensorData {
+    fn new(velocity: f32, time: f32) -> Self {
+        Self { velocity, time }
+    }
+}
+
 const ALERT_TIME_MILLISECONDS: u16 = 1000;
 const VELOCITY_THRESHOLD: f32 = 3.0;
 
@@ -100,11 +116,16 @@ const _BLUE: RGB8 = RGB8::new(0, 0, 40);
 const _PURPLE: RGB8 = RGB8::new(40, 0, 40);
 
 static WATCH: Watch<CriticalSectionRawMutex, DetectionStatus, 2> = Watch::new();
-static SENSOR_SIGNALS: Signal<CriticalSectionRawMutex, (f32, f32)> = Signal::new();
 
+#[cfg(feature = "wifi")]
+static SENSOR_SIGNALS: Signal<CriticalSectionRawMutex, SensorData> = Signal::new();
+
+#[cfg(feature = "wifi")]
 const SSID: &str = env!("SSID");
+#[cfg(feature = "wifi")]
 const PASSWORD: &str = env!("PASSWORD");
 
+#[cfg(feature = "wifi")]
 macro_rules! mk_static {
     ($t:ty,$val:expr) => {{
         static STATIC_CELL: static_cell::StaticCell<$t> = static_cell::StaticCell::new();
@@ -130,93 +151,101 @@ async fn main(spawner: Spawner) {
 
     // wifi stuff
 
-    esp_alloc::heap_allocator!(72 * 1024);
-
-    let timer_group1 = esp_hal::timer::timg::TimerGroup::new(peripherals.TIMG0);
-    let mut rng = Rng::new(peripherals.RNG);
-
-    let esp_wifi_ctrl = &*mk_static!(
-        EspWifiController<'static>,
-        init(timer_group1.timer0, rng.clone(), peripherals.RADIO_CLK).unwrap()
-    );
-
-    let (wifi_ap_device, wifi_sta_device, mut controller) =
-        esp_wifi::wifi::new_ap_sta(&esp_wifi_ctrl, peripherals.WIFI).unwrap();
-
-    let ap_config = embassy_net::Config::ipv4_static(StaticConfigV4 {
-        address: Ipv4Cidr::new(Ipv4Addr::new(192, 168, 2, 1), 24),
-        gateway: Some(Ipv4Addr::new(192, 168, 2, 1)),
-        dns_servers: Default::default(),
-    });
-
-    let sta_config = embassy_net::Config::dhcpv4(Default::default());
-
-    let seed = (rng.random() as u64) << 32 | rng.random() as u64;
-
-    // Init network stacks
-    let (ap_stack, ap_runner) = embassy_net::new(
-        wifi_ap_device,
-        ap_config,
-        mk_static!(StackResources<3>, StackResources::<3>::new()),
-        seed,
-    );
-    let (sta_stack, sta_runner) = embassy_net::new(
-        wifi_sta_device,
-        sta_config,
-        mk_static!(StackResources<4>, StackResources::<4>::new()),
-        seed,
-    );
-
-    let client_config = Configuration::Mixed(
-        ClientConfiguration {
-            ssid: SSID.try_into().unwrap(),
-            password: PASSWORD.try_into().unwrap(),
-            ..Default::default()
-        },
-        AccessPointConfiguration {
-            ssid: "esp-wifi".try_into().unwrap(),
-            ..Default::default()
-        },
-    );
-    controller.set_configuration(&client_config).unwrap();
-
-    spawner.spawn(connection(controller)).ok();
-    spawner.spawn(net_task_ap(ap_runner)).ok();
-    spawner.spawn(net_task_sta(sta_runner)).ok();
-
-    let sta_address = loop {
-        if let Some(config) = sta_stack.config_v4() {
-            let address = config.address.address();
-            println!("Got IP: {}", address);
-            break address;
-        }
-        println!("Waiting for IP...");
-        Timer::after(Duration::from_millis(500)).await;
-    };
-    loop {
-        if ap_stack.is_link_up() {
-            break;
-        }
-        Timer::after(Duration::from_millis(500)).await;
-    }
-
-    info!("Connect to the ap '{SSID}' and connect to {sta_address} port 8080");
-
+    #[cfg(feature = "wifi")]
     let mut ap_server_rx_buffer = [0; 1536];
+    #[cfg(feature = "wifi")]
     let mut ap_server_tx_buffer = [0; 1536];
+    #[cfg(feature = "wifi")]
     let mut sta_server_rx_buffer = [0; 1536];
+    #[cfg(feature = "wifi")]
     let mut sta_server_tx_buffer = [0; 1536];
 
-    let mut ap_server_socket =
-        TcpSocket::new(ap_stack, &mut ap_server_rx_buffer, &mut ap_server_tx_buffer);
-    ap_server_socket.set_timeout(Some(embassy_time::Duration::from_secs(10)));
+    #[cfg(feature = "wifi")]
+    let (mut ap_server_socket, mut sta_server_socket) = {
+        esp_alloc::heap_allocator!(72 * 1024);
 
-    let mut sta_server_socket = TcpSocket::new(
-        sta_stack,
-        &mut sta_server_rx_buffer,
-        &mut sta_server_tx_buffer,
-    );
-    sta_server_socket.set_timeout(Some(embassy_time::Duration::from_secs(10)));
+        let timer_group1 = esp_hal::timer::timg::TimerGroup::new(peripherals.TIMG0);
+        let mut rng = Rng::new(peripherals.RNG);
+
+        let esp_wifi_ctrl = &*mk_static!(
+            EspWifiController<'static>,
+            init(timer_group1.timer0, rng.clone(), peripherals.RADIO_CLK).unwrap()
+        );
+
+        let (wifi_ap_device, wifi_sta_device, mut controller) =
+            esp_wifi::wifi::new_ap_sta(&esp_wifi_ctrl, peripherals.WIFI).unwrap();
+
+        let ap_config = embassy_net::Config::ipv4_static(StaticConfigV4 {
+            address: Ipv4Cidr::new(Ipv4Addr::new(192, 168, 2, 1), 24),
+            gateway: Some(Ipv4Addr::new(192, 168, 2, 1)),
+            dns_servers: Default::default(),
+        });
+
+        let sta_config = embassy_net::Config::dhcpv4(Default::default());
+
+        let seed = (rng.random() as u64) << 32 | rng.random() as u64;
+
+        // Init network stacks
+        let (ap_stack, ap_runner) = embassy_net::new(
+            wifi_ap_device,
+            ap_config,
+            mk_static!(StackResources<3>, StackResources::<3>::new()),
+            seed,
+        );
+        let (sta_stack, sta_runner) = embassy_net::new(
+            wifi_sta_device,
+            sta_config,
+            mk_static!(StackResources<4>, StackResources::<4>::new()),
+            seed,
+        );
+
+        let client_config = Configuration::Mixed(
+            ClientConfiguration {
+                ssid: SSID.try_into().unwrap(),
+                password: PASSWORD.try_into().unwrap(),
+                ..Default::default()
+            },
+            AccessPointConfiguration {
+                ssid: "esp-wifi".try_into().unwrap(),
+                ..Default::default()
+            },
+        );
+        controller.set_configuration(&client_config).unwrap();
+
+        spawner.spawn(connection(controller)).ok();
+        spawner.spawn(net_task_ap(ap_runner)).ok();
+        spawner.spawn(net_task_sta(sta_runner)).ok();
+
+        let sta_address = loop {
+            if let Some(config) = sta_stack.config_v4() {
+                let address = config.address.address();
+                info!("Got IP: {}", address);
+                break address;
+            }
+            info!("Waiting for IP...");
+            Timer::after(Duration::from_millis(500)).await;
+        };
+        loop {
+            if ap_stack.is_link_up() {
+                break;
+            }
+            Timer::after(Duration::from_millis(500)).await;
+        }
+
+        info!("Connect to the ap '{SSID}' and connect to {sta_address} port 8080");
+
+        let mut ap_server_socket =
+            TcpSocket::new(ap_stack, &mut ap_server_rx_buffer, &mut ap_server_tx_buffer);
+        ap_server_socket.set_timeout(Some(embassy_time::Duration::from_secs(10)));
+
+        let mut sta_server_socket = TcpSocket::new(
+            sta_stack,
+            &mut sta_server_rx_buffer,
+            &mut sta_server_tx_buffer,
+        );
+        sta_server_socket.set_timeout(Some(embassy_time::Duration::from_secs(10)));
+        (ap_server_socket, sta_server_socket)
+    };
 
     // end of wifi stuff
 
@@ -283,14 +312,22 @@ async fn main(spawner: Spawner) {
     let haptic = Output::new(peripherals.GPIO18, Level::Low);
 
     // TODO: Spawn some tasks
+    #[cfg(feature = "wifi")]
+    let _ = spawner.spawn(read_uart(tx, &SENSOR_SIGNALS));
+    #[cfg(not(feature = "wifi"))]
+    let _ = spawner.spawn(read_uart(tx));
     let _ = spawner.spawn(haptic_task(haptic));
     // let _ = spawner.spawn(read_mpu_data(i2c));
-    let _ = spawner.spawn(read_uart(tx, &SENSOR_SIGNALS));
     let _ = spawner.spawn(led_strip_alert_task(ws));
 
+    #[cfg(not(feature = "wifi"))]
     loop {
-        //info!("{} ms | Hello world!", Instant::now().as_millis());
+        info!("{} ms | Hello world!", Instant::now().as_millis());
+        Timer::after_millis(1000).await;
+    }
 
+    #[cfg(feature = "wifi")]
+    loop {
         // wait for someone to connect
         let either_socket = embassy_futures::select::select(
             ap_server_socket.accept(IpListenEndpoint {
@@ -310,36 +347,39 @@ async fn main(spawner: Spawner) {
         };
 
         if let Err(e) = r {
-            println!("connect error: {:?}", e);
+            error!("connect error: {:?}", e);
             continue;
         }
 
-        println!("Client Connected...");
+        info!("Client Connected...");
 
         // send sensor data to client
         loop {
-            let (vel, time) = SENSOR_SIGNALS.wait().await;
+            let sensor_data = SENSOR_SIGNALS.wait().await;
 
-            info!("{},{}",time, vel);
+            //info!("{},{}", sensor_data.time, sensor_data.velocity);
 
             if !server_socket.can_send() {
                 // client disconected
-                println!("Client Disconnected...");
+                info!("Client Disconnected...");
                 break;
             }
 
             let Ok(_) = server_socket.write(&[0xA1]).await else {
-                println!("Client Disconnected...");
+                info!("Client Disconnected...");
                 break;
             };
 
-            let Ok(_) = server_socket.write(&vel.to_le_bytes()).await else {
-                println!("Client Disconnected...");
+            let Ok(_) = server_socket
+                .write(&sensor_data.velocity.to_le_bytes())
+                .await
+            else {
+                info!("Client Disconnected...");
                 break;
             };
 
-            let Ok(_) = server_socket.write(&time.to_le_bytes()).await else {
-                println!("Client Disconnected...");
+            let Ok(_) = server_socket.write(&sensor_data.time.to_le_bytes()).await else {
+                info!("Client Disconnected...");
                 break;
             };
 
@@ -387,25 +427,13 @@ async fn read_mpu_data(mut i2c: I2c<'static, Async>) {
 
 /// Reads UART channel, then attemps to convert recieved bytes into an f32
 /// TODO: UART is probably sending character bytes, which won't cleanly convert to an f32, attempt conversion to char array, then f32
+#[cfg(not(feature = "wifi"))]
 #[embassy_executor::task]
-async fn read_uart(
-    mut uart: UartRx<'static, Async>,
-    signals: &'static Signal<CriticalSectionRawMutex, (f32, f32)>,
-) {
+async fn read_uart(mut uart: UartRx<'static, Async>) {
     let mut uart_buffer: [u8; 128] = [0u8; 128];
     let sender = WATCH.dyn_sender();
 
     loop {
-        // let mut time: f32 = 0.0;
-        // let mut velocity: f32 = 0.0;
-        // loop {
-        //     velocity_signal.signal(velocity);
-        //     time_signal.signal(time);
-        //     Timer::after(Duration::from_millis(100)).await;
-        //     time += 0.1;
-        //     velocity = libm::sinf(time);
-        // }
-
         let Ok(_len) = uart.read_async(&mut uart_buffer).await else {
             error!("Error reading UART");
             continue;
@@ -413,42 +441,87 @@ async fn read_uart(
 
         // warn!("UART Buffer: {:?}", uart_buffer);
 
-        let troll = CStr::from_bytes_until_nul(&uart_buffer).unwrap().to_str().unwrap();
+        let sensor_ascii = CStr::from_bytes_until_nul(&uart_buffer)
+            .unwrap()
+            .to_str()
+            .unwrap();
 
-        //let troll = unsafe { str::from_utf8_unchecked(&uart_buffer) };
+        info!("{}", sensor_ascii);
 
-        info!("{}", troll);
-
-        let variables = troll.trim().split(',');
-        let mut haha: [f32; 2] = [0.0; 2];
-        for (i, var) in variables.enumerate() {
+        let mut variables: [f32; 2] = [0.0; 2];
+        for (i, var) in sensor_ascii.trim().split(',').enumerate() {
             //info!("{}", var);
-            haha[i] = match var.trim().parse::<f32>() {
+            variables[i] = match var.trim().parse::<f32>() {
                 Ok(reading) => reading,
                 Err(_err) => {
                     error!("Parse float error: {_err:?}:{var}");
                     continue;
-                },
+                }
             };
         }
 
-        
-        let velocity_reading = haha[1];
-        let time_stamp = haha[0];
+        let sensor_data = SensorData::new(variables[1], variables[0]);
 
-        // let velocity_reading = match troll.parse::<f32>() {
-        //     Ok(reading) => reading,
-        //     Err(_err) => {
-        //         // error!("Parse float error: {err:?}");
-        //         continue;
-        //     }
-        // };
+        match sensor_data.velocity.total_cmp(&VELOCITY_THRESHOLD) {
+            core::cmp::Ordering::Less => {
+                sender.send(DetectionStatus::Clear);
+            }
+            core::cmp::Ordering::Equal => {
+                sender.send(DetectionStatus::ObjectDetected);
+                Timer::after_millis(ALERT_TIME_MILLISECONDS.into()).await;
+            }
+            core::cmp::Ordering::Greater => {
+                sender.send(DetectionStatus::ObjectDetected);
+                Timer::after_millis(ALERT_TIME_MILLISECONDS.into()).await;
+            }
+        };
 
-        //info!("{}, {}", time_stamp, velocity_reading);
+        // info!("Velocity Reading: {:?}", velocity_reading);
+    }
+}
 
-        signals.signal((velocity_reading, time_stamp));
+// wifi version of read_uart
+#[cfg(feature = "wifi")]
+#[embassy_executor::task]
+async fn read_uart(
+    mut uart: UartRx<'static, Async>,
+    signals: &'static Signal<CriticalSectionRawMutex, SensorData>,
+) {
+    let mut uart_buffer: [u8; 128] = [0u8; 128];
+    let sender = WATCH.dyn_sender();
 
-        match velocity_reading.total_cmp(&VELOCITY_THRESHOLD) {
+    loop {
+        let Ok(_len) = uart.read_async(&mut uart_buffer).await else {
+            error!("Error reading UART");
+            continue;
+        };
+
+        // warn!("UART Buffer: {:?}", uart_buffer);
+
+        let sensor_ascii = CStr::from_bytes_until_nul(&uart_buffer)
+            .unwrap()
+            .to_str()
+            .unwrap();
+
+        info!("{}", sensor_ascii);
+
+        let mut variables: [f32; 2] = [0.0; 2];
+        for (i, var) in sensor_ascii.trim().split(',').enumerate() {
+            //info!("{}", var);
+            variables[i] = match var.trim().parse::<f32>() {
+                Ok(reading) => reading,
+                Err(_err) => {
+                    error!("Parse float error: {_err:?}:{var}");
+                    continue;
+                }
+            };
+        }
+
+        let sensor_data = SensorData::new(variables[1], variables[0]);
+
+        signals.signal(sensor_data.clone());
+
+        match sensor_data.velocity.total_cmp(&VELOCITY_THRESHOLD) {
             core::cmp::Ordering::Less => {
                 sender.send(DetectionStatus::Clear);
             }
@@ -504,28 +577,29 @@ async fn led_strip_alert_task(mut ws: Ws2812<Spi<'static, Async>>) {
 }
 
 // from example
+#[cfg(feature = "wifi")]
 #[embassy_executor::task]
 async fn connection(mut controller: WifiController<'static>) {
-    println!("start connection task");
-    println!("Device capabilities: {:?}", controller.capabilities());
+    info!("start connection task");
+    info!("Device capabilities: {:?}", controller.capabilities());
 
-    println!("Starting wifi");
+    info!("Starting wifi");
     controller.start_async().await.unwrap();
-    println!("Wifi started!");
+    info!("Wifi started!");
 
     loop {
         match esp_wifi::wifi::ap_state() {
             WifiState::ApStarted => {
-                println!("About to connect...");
+                info!("About to connect...");
 
                 match controller.connect_async().await {
                     Ok(_) => {
                         // wait until we're no longer connected
                         controller.wait_for_event(WifiEvent::StaDisconnected).await;
-                        println!("STA disconnected");
+                        info!("STA disconnected");
                     }
                     Err(e) => {
-                        println!("Failed to connect to wifi: {e:?}");
+                        error!("Failed to connect to wifi: {e:?}");
                         Timer::after(Duration::from_millis(5000)).await
                     }
                 }
@@ -536,6 +610,7 @@ async fn connection(mut controller: WifiController<'static>) {
 }
 
 // from example
+#[cfg(feature = "wifi")]
 #[embassy_executor::task(pool_size = 2)]
 async fn net_task_ap(
     mut runner: Runner<'static, WifiDevice<'static, esp_wifi::wifi::WifiApDevice>>,
@@ -543,6 +618,7 @@ async fn net_task_ap(
     runner.run().await
 }
 
+#[cfg(feature = "wifi")]
 #[embassy_executor::task(pool_size = 2)]
 async fn net_task_sta(
     mut runner: Runner<'static, WifiDevice<'static, esp_wifi::wifi::WifiStaDevice>>,

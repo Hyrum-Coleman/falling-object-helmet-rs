@@ -461,6 +461,8 @@ async fn read_uart(mut uart: UartRx<'static, Async>) {
 
         let sensor_data = SensorData::new(variables[1], variables[0]);
 
+        info!("Time: {} -- Velocity Reading: {}", sensor_data.time, sensor_data.velocity);
+
         match sensor_data.velocity.total_cmp(&VELOCITY_THRESHOLD) {
             core::cmp::Ordering::Less => {
                 sender.send(DetectionStatus::Clear);
@@ -475,7 +477,7 @@ async fn read_uart(mut uart: UartRx<'static, Async>) {
             }
         };
 
-        // info!("Velocity Reading: {:?}", velocity_reading);
+        
     }
 }
 

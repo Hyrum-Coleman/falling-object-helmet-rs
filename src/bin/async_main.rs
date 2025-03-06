@@ -20,7 +20,6 @@ use esp_hal::{
     gpio::{Level, Output},
     Async,
 };
-use esp_println;
 use fugit::HertzU32;
 use heapless::Vec;
 use log::{error, info};
@@ -173,11 +172,11 @@ async fn main(spawner: Spawner) {
 
         let esp_wifi_ctrl = &*mk_static!(
             EspWifiController<'static>,
-            init(timer_group1.timer0, rng.clone(), peripherals.RADIO_CLK).unwrap()
+            init(timer_group1.timer0, rng, peripherals.RADIO_CLK).unwrap()
         );
 
         let (wifi_ap_device, wifi_sta_device, mut controller) =
-            esp_wifi::wifi::new_ap_sta(&esp_wifi_ctrl, peripherals.WIFI).unwrap();
+            esp_wifi::wifi::new_ap_sta(esp_wifi_ctrl, peripherals.WIFI).unwrap();
 
         let ap_config = embassy_net::Config::ipv4_static(StaticConfigV4 {
             address: Ipv4Cidr::new(Ipv4Addr::new(192, 168, 2, 1), 24),
@@ -455,8 +454,7 @@ async fn read_uart(mut uart: UartRx<'static, Async>) {
         let variables: Vec<f32, 2> = sensor_ascii
             .trim()
             .split(',')
-            .enumerate()
-            .flat_map(|(_, var)| var.parse::<f32>())
+            .flat_map(|var| var.parse::<f32>())
             .collect();
 
         let sensor_data = SensorData::new(variables[1], variables[0]);
@@ -510,8 +508,7 @@ async fn read_uart(
         let variables: Vec<f32, 2> = sensor_ascii
             .trim()
             .split(',')
-            .enumerate()
-            .flat_map(|(_i, var)| var.parse::<f32>())
+            .flat_map(|var| var.parse::<f32>())
             .collect();
 
         let sensor_data = SensorData::new(variables[1], variables[0]);

@@ -322,41 +322,28 @@ async fn main(spawner: Spawner) {
 
             info!("{},{}",time, vel);
 
-            if server_socket.can_send() {
-                //println!("Writing data...");
-                let _ = match server_socket.write(&[0xA1]).await {
-                    Ok(_) => {
-                        let _ = match server_socket.write(&vel.to_le_bytes()).await {
-                            Ok(_) => {
-                                //println!("Velocity Sent");
-                                let _ = match server_socket.write(&time.to_le_bytes()).await {
-                                    Ok(_) => {
-                                        //println!("Time Sent")
-                                    },
-                                    Err(e) => {
-                                        println!("Client Disconnected... {:?}", e);
-                                        break;
-                                    }
-                                };
-                            }
-                            Err(e) => {
-                                println!("Client Disconnected... {:?}", e);
-                                break;
-                            }
-                        };
-                    }
-                    Err(e) => {
-                        println!("Client Disconnected... {:?}", e);
-                        break;
-                    }
-                };
-            } else {
+            if !server_socket.can_send() {
                 // client disconected
                 println!("Client Disconnected...");
                 break;
             }
 
-            //println!("Value Received: {}", vel);
+            let Ok(_) = server_socket.write(&[0xA1]).await else {
+                println!("Client Disconnected...");
+                break;
+            };
+
+            let Ok(_) = server_socket.write(&vel.to_le_bytes()).await else {
+                println!("Client Disconnected...");
+                break;
+            };
+
+            let Ok(_) = server_socket.write(&time.to_le_bytes()).await else {
+                println!("Client Disconnected...");
+                break;
+            };
+
+            //info!("Value Received: {}", vel);
         }
     }
 

@@ -313,12 +313,13 @@ async fn main(spawner: Spawner) {
     ws.write(leds).unwrap();
 
     let haptic = Output::new(peripherals.GPIO18, Level::Low);
+    let builtin_led = Output::new(peripherals.GPIO2, Level::Low);
 
     // TODO: Spawn some tasks
     #[cfg(feature = "wifi")]
-    let _ = spawner.spawn(read_uart(tx, &SENSOR_SIGNALS));
+    let _ = spawner.spawn(read_uart(tx, &SENSOR_SIGNALS, builtin_led));
     #[cfg(not(feature = "wifi"))]
-    let _ = spawner.spawn(read_uart(tx));
+    let _ = spawner.spawn(read_uart(tx, builtin_led));
     let _ = spawner.spawn(haptic_task(haptic));
     // let _ = spawner.spawn(read_mpu_data(i2c));
     let _ = spawner.spawn(led_strip_alert_task(ws));
@@ -432,8 +433,7 @@ async fn read_mpu_data(mut i2c: I2c<'static, Async>) {
 /// TODO: UART is probably sending character bytes, which won't cleanly convert to an f32, attempt conversion to char array, then f32
 #[cfg(not(feature = "wifi"))]
 #[embassy_executor::task]
-async fn read_uart(mut uart: UartRx<'static, Async>) {
-
+async fn read_uart(mut uart: UartRx<'static, Async>, mut builtin_led: Output<'static>) {
     let mut uart_buffer: [u8; 128] = [0u8; 128];
     let sender = WATCH.dyn_sender();
 
@@ -448,9 +448,11 @@ async fn read_uart(mut uart: UartRx<'static, Async>) {
             Err(e) => {
                 warn!("UART Buffer: {:?}", uart_buffer);
                 error!("{}", e);
-                continue
-            },
-        }.to_str().unwrap();
+                continue;
+            }
+        }
+        .to_str()
+        .unwrap();
 
         let variables: Vec<f32, 2> = sensor_ascii
             .trim()
@@ -460,8 +462,13 @@ async fn read_uart(mut uart: UartRx<'static, Async>) {
 
         if variables.len() != 2 {
             error!("SHit's fucked: {:?}", variables);
+            builtin_led.set_high();
             continue;
+        } else {
+            builtin_led.set_low();
         }
+
+        uart_buffer = [0u8; 128];
 
         let sensor_data = SensorData::new(variables[1], variables[0]);
 
@@ -492,6 +499,7 @@ async fn read_uart(mut uart: UartRx<'static, Async>) {
 async fn read_uart(
     mut uart: UartRx<'static, Async>,
     signals: &'static Signal<CriticalSectionRawMutex, SensorData>,
+    mut builtin_led: Output<'static>,
 ) {
     let mut uart_buffer: [u8; 128] = [0u8; 128];
     let sender = WATCH.dyn_sender();
@@ -507,9 +515,11 @@ async fn read_uart(
             Err(e) => {
                 warn!("UART Buffer: {:?}", uart_buffer);
                 error!("{}", e);
-                continue
-            },
-        }.to_str().unwrap();
+                continue;
+            }
+        }
+        .to_str()
+        .unwrap();
 
         let variables: Vec<f32, 2> = sensor_ascii
             .trim()
@@ -519,8 +529,13 @@ async fn read_uart(
 
         if variables.len() != 2 {
             error!("SHit's fucked: {:?}", variables);
+            builtin_led.set_high();
             continue;
+        } else {
+            builtin_led.set_low();
         }
+
+        uart_buffer = [0u8; 128];
 
         let sensor_data = SensorData::new(variables[1], variables[0]);
 
@@ -544,6 +559,8 @@ async fn read_uart(
                 Timer::after_millis(ALERT_TIME_MILLISECONDS.into()).await;
             }
         };
+
+        uart
 
         // info!("Velocity Reading: {:?}", velocity_reading);
     }

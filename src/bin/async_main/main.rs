@@ -36,9 +36,7 @@ use embassy_time::Instant;
 use esp_hal::peripherals::Peripherals;
 #[cfg(feature = "wifi")]
 use {
-    embassy_futures::select::Either,
-    embassy_net::IpListenEndpoint,
-    embassy_sync::signal::Signal,
+    embassy_futures::select::Either, embassy_net::IpListenEndpoint, embassy_sync::signal::Signal,
 };
 
 #[derive(Debug, Clone, Copy)]

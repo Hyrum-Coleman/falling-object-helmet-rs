@@ -135,18 +135,6 @@ async fn main(spawner: Spawner) {
         }
     };
 
-    // let Ok(_len) = rx.write_async(&[0x4F, 0x54]).await else {
-    //     error!("Error writing to UART");
-    //     Timer::after(Duration::from_secs(2)).await;
-    //     return;
-    // }; // "OT", command to turn on time reading
-
-    // let Ok(_len) = rx.write_async(&[0x49, 0x73]).await else {
-    //     error!("Error writing to UART");
-    //     Timer::after(Duration::from_secs(2)).await;
-    //     return;
-    // }; // command to turn on uart
-
     let led_pin4 = Output::new(peripherals.GPIO4, Level::Low);
     let spi = match Spi::new(
         peripherals.SPI2,
@@ -244,5 +232,4 @@ async fn main(spawner: Spawner) {
             //info!("Value Received: {}", vel);
         }
     }
-    // for inspiration have a look at the examples at https://github.com/esp-rs/esp-hal/tree/v0.23.1/examples/src/bin
 }

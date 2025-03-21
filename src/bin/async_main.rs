@@ -22,7 +22,7 @@ use esp_hal::{
 };
 use fugit::HertzU32;
 use heapless::Vec;
-use log::{error, info};
+use log::{error, info, warn};
 use smart_leds::{SmartLedsWrite, RGB8};
 use ws2812_spi::Ws2812;
 
@@ -433,6 +433,7 @@ async fn read_mpu_data(mut i2c: I2c<'static, Async>) {
 #[cfg(not(feature = "wifi"))]
 #[embassy_executor::task]
 async fn read_uart(mut uart: UartRx<'static, Async>) {
+
     let mut uart_buffer: [u8; 128] = [0u8; 128];
     let sender = WATCH.dyn_sender();
 
@@ -442,20 +443,25 @@ async fn read_uart(mut uart: UartRx<'static, Async>) {
             continue;
         };
 
-        // warn!("UART Buffer: {:?}", uart_buffer);
-
-        let sensor_ascii = CStr::from_bytes_until_nul(&uart_buffer)
-            .unwrap()
-            .to_str()
-            .unwrap();
-
-        info!("{}", sensor_ascii);
+        let sensor_ascii = match CStr::from_bytes_until_nul(&uart_buffer) {
+            Ok(valid_ascii) => valid_ascii,
+            Err(e) => {
+                warn!("UART Buffer: {:?}", uart_buffer);
+                error!("{}", e);
+                continue
+            },
+        }.to_str().unwrap();
 
         let variables: Vec<f32, 2> = sensor_ascii
             .trim()
             .split(',')
             .flat_map(|var| var.parse::<f32>())
             .collect();
+
+        if variables.len() != 2 {
+            error!("SHit's fucked: {:?}", variables);
+            continue;
+        }
 
         let sensor_data = SensorData::new(variables[1], variables[0]);
 
@@ -496,14 +502,14 @@ async fn read_uart(
             continue;
         };
 
-        // warn!("UART Buffer: {:?}", uart_buffer);
-
-        let sensor_ascii = CStr::from_bytes_until_nul(&uart_buffer)
-            .unwrap()
-            .to_str()
-            .unwrap();
-
-        info!("{}", sensor_ascii);
+        let sensor_ascii = match CStr::from_bytes_until_nul(&uart_buffer) {
+            Ok(valid_ascii) => valid_ascii,
+            Err(e) => {
+                warn!("UART Buffer: {:?}", uart_buffer);
+                error!("{}", e);
+                continue
+            },
+        }.to_str().unwrap();
 
         let variables: Vec<f32, 2> = sensor_ascii
             .trim()
@@ -511,7 +517,17 @@ async fn read_uart(
             .flat_map(|var| var.parse::<f32>())
             .collect();
 
+        if variables.len() != 2 {
+            error!("SHit's fucked: {:?}", variables);
+            continue;
+        }
+
         let sensor_data = SensorData::new(variables[1], variables[0]);
+
+        info!(
+            "Time: {} -- Velocity Reading: {}",
+            sensor_data.time, sensor_data.velocity
+        );
 
         signals.signal(sensor_data.clone());
 

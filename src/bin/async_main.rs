@@ -477,17 +477,13 @@ async fn read_uart(mut uart: UartRx<'static, Async>, mut builtin_led: Output<'st
             sensor_data.time, sensor_data.velocity
         );
 
-        match sensor_data.velocity.total_cmp(&VELOCITY_THRESHOLD) {
-            core::cmp::Ordering::Less => {
+        match sensor_data.velocity >= VELOCITY_THRESHOLD {
+            true => {
+                sender.send(DetectionStatus::ObjectDetected);
+                Timer::after_millis(ALERT_TIME_MILLISECONDS.into()).await;
+            }
+            false => {
                 sender.send(DetectionStatus::Clear);
-            }
-            core::cmp::Ordering::Equal => {
-                sender.send(DetectionStatus::ObjectDetected);
-                Timer::after_millis(ALERT_TIME_MILLISECONDS.into()).await;
-            }
-            core::cmp::Ordering::Greater => {
-                sender.send(DetectionStatus::ObjectDetected);
-                Timer::after_millis(ALERT_TIME_MILLISECONDS.into()).await;
             }
         };
     }

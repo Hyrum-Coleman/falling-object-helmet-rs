@@ -1,4 +1,4 @@
-use crate::{DetectionStatus, ALERT_TIME_MILLISECONDS, WATCH};
+use crate::{DetectionStatus, WATCH};
 use embassy_futures::select::select;
 use embassy_time::Timer;
 use esp_hal::gpio::Output;
@@ -8,6 +8,8 @@ use smart_leds::{SmartLedsWrite, RGB8};
 use ws2812_spi::Ws2812;
 
 pub const NUM_LEDS: usize = 30;
+
+const ALERT_TIME_MILLISECONDS: u16 = 1000;
 const RED: RGB8 = RGB8::new(40, 0, 0);
 const _YELLOW: RGB8 = RGB8::new(40, 40, 0);
 const _GREEN: RGB8 = RGB8::new(0, 40, 0);
@@ -33,7 +35,8 @@ pub async fn led_strip_alert_task(mut ws: Ws2812<Spi<'static, Async>>) {
                         ws.write(clear_led).unwrap();
                         Timer::after_millis(100).await;
                     }
-                }).await;
+                })
+                .await;
             }
         }
     }
@@ -52,6 +55,6 @@ pub async fn haptic_task(mut haptic: Output<'static>) {
                 Timer::after_millis(ALERT_TIME_MILLISECONDS.into()).await;
                 haptic.set_low();
             }
-            }
+        }
     }
 }

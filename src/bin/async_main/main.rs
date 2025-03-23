@@ -56,9 +56,6 @@ impl SensorData {
     }
 }
 
-const ALERT_TIME_MILLISECONDS: u16 = 1000;
-const VELOCITY_THRESHOLD: f32 = 3.0;
-
 static WATCH: Watch<CriticalSectionRawMutex, DetectionStatus, 2> = Watch::new();
 
 #[cfg(feature = "wifi")]

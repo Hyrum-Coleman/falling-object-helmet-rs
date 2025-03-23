@@ -1,4 +1,4 @@
-use crate::{DetectionStatus, SensorData, VELOCITY_THRESHOLD, WATCH};
+use crate::{DetectionStatus, SensorData, WATCH};
 use core::ffi::CStr;
 
 #[cfg(feature = "wifi")]
@@ -11,6 +11,8 @@ use esp_hal::uart::UartRx;
 use esp_hal::Async;
 use heapless::Vec;
 use log::{error, info, warn};
+
+const VELOCITY_THRESHOLD: f32 = 1.0;
 
 /// Handles shared UART logic for parsing SensorData and triggering alerts.
 async fn process_uart_read(

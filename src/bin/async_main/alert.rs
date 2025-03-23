@@ -1,4 +1,4 @@
-use crate::{DetectionStatus, WATCH};
+use crate::{DetectionStatus, ALERT_TIME_MILLISECONDS, WATCH};
 use embassy_futures::select::select;
 use embassy_time::Timer;
 use esp_hal::gpio::Output;
@@ -24,29 +24,16 @@ pub async fn led_strip_alert_task(mut ws: Ws2812<Spi<'static, Async>>) {
     let mut receiver = WATCH.receiver().unwrap();
 
     loop {
-        let val = receiver.changed().await;
-
-        match val {
-            DetectionStatus::ObjectDetected => loop {
-                ws.write(color_leds).unwrap();
-                match select(Timer::after_millis(100), receiver.changed()).await {
-                    embassy_futures::select::Either::First(_) => (),
-                    embassy_futures::select::Either::Second(_) => {
+        match receiver.changed().await {
+            DetectionStatus::ObjectDetected => {
+                select(Timer::after_millis(ALERT_TIME_MILLISECONDS.into()), async {
+                    for _i in 1..=8 {
+                        ws.write(color_leds).unwrap();
+                        Timer::after_millis(100).await;
                         ws.write(clear_led).unwrap();
-                        break;
+                        Timer::after_millis(100).await;
                     }
-                };
-                ws.write(clear_led).unwrap();
-                match select(Timer::after_millis(100), receiver.changed()).await {
-                    embassy_futures::select::Either::First(_) => (),
-                    embassy_futures::select::Either::Second(_) => {
-                        ws.write(clear_led).unwrap();
-                        break;
-                    }
-                };
-            },
-            DetectionStatus::Clear => {
-                ws.write(clear_led).unwrap();
+                }).await;
             }
         }
     }
@@ -60,8 +47,11 @@ pub async fn haptic_task(mut haptic: Output<'static>) {
         let val = receiver.changed().await;
 
         match val {
-            DetectionStatus::ObjectDetected => haptic.set_high(),
-            DetectionStatus::Clear => haptic.set_low(),
-        }
+            DetectionStatus::ObjectDetected => {
+                haptic.set_high();
+                Timer::after_millis(ALERT_TIME_MILLISECONDS.into()).await;
+                haptic.set_low();
+            }
+            }
     }
 }

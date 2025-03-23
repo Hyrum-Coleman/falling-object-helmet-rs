@@ -42,7 +42,6 @@ use {
 #[derive(Debug, Clone, Copy)]
 enum DetectionStatus {
     ObjectDetected,
-    Clear,
 }
 
 #[derive(Clone)]

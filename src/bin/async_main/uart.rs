@@ -1,4 +1,4 @@
-use crate::{DetectionStatus, SensorData, ALERT_TIME_MILLISECONDS, VELOCITY_THRESHOLD, WATCH};
+use crate::{DetectionStatus, SensorData, VELOCITY_THRESHOLD, WATCH};
 use core::ffi::CStr;
 
 #[cfg(feature = "wifi")]
@@ -6,7 +6,6 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 #[cfg(feature = "wifi")]
 use embassy_sync::signal::Signal;
 use embassy_sync::watch::DynSender;
-use embassy_time::Timer;
 use esp_hal::gpio::Output;
 use esp_hal::uart::UartRx;
 use esp_hal::Async;
@@ -55,12 +54,9 @@ async fn process_uart_read(
 
 async fn send_alert(sensor_data: SensorData, sender: &DynSender<'static, DetectionStatus>) {
     match sensor_data.velocity.total_cmp(&VELOCITY_THRESHOLD) {
-        core::cmp::Ordering::Less => {
-            sender.send(DetectionStatus::Clear);
-        }
+        core::cmp::Ordering::Less => (),
         _ => {
             sender.send(DetectionStatus::ObjectDetected);
-            Timer::after_millis(ALERT_TIME_MILLISECONDS.into()).await;
         }
     }
 }

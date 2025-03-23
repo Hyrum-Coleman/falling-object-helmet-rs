@@ -1,4 +1,4 @@
-use crate::{DetectionStatus, SensorData, WATCH};
+use crate::WATCH;
 use core::ffi::CStr;
 
 #[cfg(feature = "wifi")]
@@ -9,6 +9,7 @@ use embassy_sync::watch::DynSender;
 use esp_hal::gpio::Output;
 use esp_hal::uart::UartRx;
 use esp_hal::Async;
+use falling_object_helmet_rs::{DetectionStatus, SensorData};
 use heapless::Vec;
 use log::{error, info, warn};
 

@@ -1,9 +1,10 @@
-use crate::{DetectionStatus, WATCH};
+use crate::WATCH;
 use embassy_futures::select::select;
 use embassy_time::Timer;
 use esp_hal::gpio::Output;
 use esp_hal::spi::master::Spi;
 use esp_hal::Async;
+use falling_object_helmet_rs::DetectionStatus;
 use smart_leds::{SmartLedsWrite, RGB8};
 use ws2812_spi::Ws2812;
 

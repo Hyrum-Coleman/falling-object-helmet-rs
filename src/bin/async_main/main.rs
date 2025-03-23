@@ -36,25 +36,9 @@ use embassy_time::Instant;
 use esp_hal::peripherals::Peripherals;
 #[cfg(feature = "wifi")]
 use {
-    embassy_futures::select::Either, embassy_net::IpListenEndpoint, embassy_sync::signal::Signal,
+    embassy_futures::select::Either, embassy_net::IpListenEndpoint, embassy_sync::signal::Signal, falling_object_helmet_rs::SensorData,
 };
-
-#[derive(Debug, Clone, Copy)]
-enum DetectionStatus {
-    ObjectDetected,
-}
-
-#[derive(Clone)]
-struct SensorData {
-    velocity: f32,
-    time: f32,
-}
-
-impl SensorData {
-    fn new(velocity: f32, time: f32) -> Self {
-        Self { velocity, time }
-    }
-}
+use falling_object_helmet_rs::DetectionStatus;
 
 static WATCH: Watch<CriticalSectionRawMutex, DetectionStatus, 2> = Watch::new();
 

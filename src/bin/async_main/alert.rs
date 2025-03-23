@@ -38,6 +38,7 @@ pub async fn led_strip_alert_task(mut ws: Ws2812<Spi<'static, Async>>) {
                     }
                 })
                 .await;
+                ws.write(clear_led).unwrap();
             }
         }
     }

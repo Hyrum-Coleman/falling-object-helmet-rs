@@ -34,11 +34,12 @@ use alert::NUM_LEDS;
 #[cfg(not(feature = "wifi"))]
 use embassy_time::Instant;
 use esp_hal::peripherals::Peripherals;
+use falling_object_helmet_rs::DetectionStatus;
 #[cfg(feature = "wifi")]
 use {
-    embassy_futures::select::Either, embassy_net::IpListenEndpoint, embassy_sync::signal::Signal, falling_object_helmet_rs::SensorData,
+    embassy_futures::select::Either, embassy_net::IpListenEndpoint, embassy_sync::signal::Signal,
+    falling_object_helmet_rs::SensorData,
 };
-use falling_object_helmet_rs::DetectionStatus;
 
 static WATCH: Watch<CriticalSectionRawMutex, DetectionStatus, 2> = Watch::new();
 

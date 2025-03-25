@@ -9,6 +9,7 @@ use smart_leds::{SmartLedsWrite, RGB8};
 use ws2812_spi::Ws2812;
 
 pub const NUM_LEDS: usize = 30;
+const BLINK_TIME: u64 = 100;
 
 const ALERT_TIME_MILLISECONDS: u16 = 1000;
 const RED: RGB8 = RGB8::new(40, 0, 0);
@@ -32,9 +33,9 @@ pub async fn led_strip_alert_task(mut ws: Ws2812<Spi<'static, Async>>) {
                 select(Timer::after_millis(ALERT_TIME_MILLISECONDS.into()), async {
                     for _i in 1..=8 {
                         ws.write(color_leds).unwrap();
-                        Timer::after_millis(100).await;
+                        Timer::after_millis(BLINK_TIME).await;
                         ws.write(clear_led).unwrap();
-                        Timer::after_millis(100).await;
+                        Timer::after_millis(BLINK_TIME).await;
                     }
                 })
                 .await;

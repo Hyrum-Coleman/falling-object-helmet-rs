@@ -32,9 +32,8 @@ use crate::alert::haptic_task;
 use crate::uart::read_uart;
 use alert::led_strip_alert_task;
 use alert::NUM_LEDS;
-#[cfg(not(feature = "wifi"))]
-use embassy_time::Instant;
 use esp_hal::peripherals::Peripherals;
+#[cfg(not(feature = "wifi"))]
 use esp_println::println;
 use falling_object_helmet_rs::DetectionStatus;
 use falling_object_helmet_rs::SensorData;

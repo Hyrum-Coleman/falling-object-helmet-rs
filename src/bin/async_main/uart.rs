@@ -9,7 +9,7 @@ use esp_hal::uart::UartRx;
 use esp_hal::Async;
 use falling_object_helmet_rs::{DetectionStatus, SensorData};
 use heapless::Vec;
-use log::{error, info, warn};
+use log::{error, warn};
 
 const VELOCITY_THRESHOLD: f32 = 1.0;
 

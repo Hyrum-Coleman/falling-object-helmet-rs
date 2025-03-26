@@ -71,11 +71,6 @@ pub async fn read_uart(mut uart: UartRx<'static, Async>, mut builtin_led: Output
 
     loop {
         if let Some(sensor_data) = process_uart_read(&mut uart, &mut builtin_led).await {
-            info!(
-                "Time: {} -- Velocity Reading: {}",
-                sensor_data.time, sensor_data.velocity
-            );
-
             send_alert(sensor_data, &sender).await;
         }
     }
@@ -92,11 +87,6 @@ pub async fn read_uart(
 
     loop {
         if let Some(sensor_data) = process_uart_read(&mut uart, &mut builtin_led).await {
-            info!(
-                "Time: {} -- Velocity Reading: {}",
-                sensor_data.time, sensor_data.velocity
-            );
-
             signals.signal(sensor_data.clone());
 
             send_alert(sensor_data, &sender).await;

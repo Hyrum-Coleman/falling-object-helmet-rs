@@ -80,14 +80,14 @@ pub async fn read_uart(mut uart: UartRx<'static, Async>, mut builtin_led: Output
 #[embassy_executor::task]
 pub async fn read_uart(
     mut uart: UartRx<'static, Async>,
-    signals: &'static Signal<CriticalSectionRawMutex, SensorData>,
+    signal: &'static Signal<CriticalSectionRawMutex, SensorData>,
     mut builtin_led: Output<'static>,
 ) {
     let sender = WATCH.dyn_sender();
 
     loop {
         if let Some(sensor_data) = process_uart_read(&mut uart, &mut builtin_led).await {
-            signals.signal(sensor_data.clone());
+            signal.signal(sensor_data.clone());
 
             send_alert(sensor_data, &sender).await;
         }

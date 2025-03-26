@@ -9,6 +9,7 @@ mod wifi;
 
 use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::signal::Signal;
 use embassy_sync::watch::Watch;
 use embassy_time::{Duration, Timer};
 use esp_alloc as _;
@@ -34,16 +35,14 @@ use alert::NUM_LEDS;
 #[cfg(not(feature = "wifi"))]
 use embassy_time::Instant;
 use esp_hal::peripherals::Peripherals;
+use esp_println::println;
 use falling_object_helmet_rs::DetectionStatus;
+use falling_object_helmet_rs::SensorData;
 #[cfg(feature = "wifi")]
-use {
-    embassy_futures::select::Either, embassy_net::IpListenEndpoint, embassy_sync::signal::Signal,
-    falling_object_helmet_rs::SensorData,
-};
+use {embassy_futures::select::Either, embassy_net::IpListenEndpoint};
 
 static WATCH: Watch<CriticalSectionRawMutex, DetectionStatus, 2> = Watch::new();
 
-#[cfg(feature = "wifi")]
 static SENSOR_SIGNAL: Signal<CriticalSectionRawMutex, SensorData> = Signal::new();
 
 #[esp_hal_embassy::main]
@@ -139,18 +138,17 @@ async fn main(spawner: Spawner) {
     let builtin_led = Output::new(peripherals.GPIO2, Level::Low);
 
     // TODO: Spawn some tasks
-    #[cfg(feature = "wifi")]
+
     let _ = spawner.spawn(read_uart(tx, &SENSOR_SIGNAL, builtin_led));
-    #[cfg(not(feature = "wifi"))]
-    let _ = spawner.spawn(read_uart(tx, builtin_led));
     let _ = spawner.spawn(haptic_task(haptic));
     // let _ = spawner.spawn(read_mpu_data(i2c));
     let _ = spawner.spawn(led_strip_alert_task(ws));
 
     #[cfg(not(feature = "wifi"))]
     loop {
-        info!("{} ms | Hello world!", Instant::now().as_millis());
-        Timer::after_millis(1000).await;
+        let SensorData { velocity, time } = SENSOR_SIGNAL.wait().await;
+
+        println!("{time}, {velocity}");
     }
 
     #[cfg(feature = "wifi")]

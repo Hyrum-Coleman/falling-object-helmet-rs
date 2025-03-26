@@ -1,9 +1,7 @@
 use crate::WATCH;
 use core::ffi::CStr;
 
-#[cfg(feature = "wifi")]
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-#[cfg(feature = "wifi")]
 use embassy_sync::signal::Signal;
 use embassy_sync::watch::DynSender;
 use esp_hal::gpio::Output;
@@ -66,11 +64,17 @@ async fn send_alert(sensor_data: SensorData, sender: &DynSender<'static, Detecti
 
 #[cfg(not(feature = "wifi"))]
 #[embassy_executor::task]
-pub async fn read_uart(mut uart: UartRx<'static, Async>, mut builtin_led: Output<'static>) {
+pub async fn read_uart(
+    mut uart: UartRx<'static, Async>,
+    signal: &'static Signal<CriticalSectionRawMutex, SensorData>,
+    mut builtin_led: Output<'static>,
+) {
     let sender = WATCH.dyn_sender();
 
     loop {
         if let Some(sensor_data) = process_uart_read(&mut uart, &mut builtin_led).await {
+            signal.signal(sensor_data);
+
             send_alert(sensor_data, &sender).await;
         }
     }

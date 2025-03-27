@@ -91,7 +91,7 @@ pub async fn read_uart(
 
     loop {
         if let Some(sensor_data) = process_uart_read(&mut uart, &mut builtin_led).await {
-            signal.signal(sensor_data.clone());
+            signal.signal(sensor_data);
 
             send_alert(sensor_data, &sender).await;
         }

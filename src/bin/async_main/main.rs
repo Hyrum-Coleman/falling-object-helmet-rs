@@ -38,6 +38,8 @@ use esp_println::println;
 use falling_object_helmet_rs::DetectionStatus;
 use falling_object_helmet_rs::SensorData;
 #[cfg(feature = "wifi")]
+use falling_object_helmet_rs::WifiPeripherals;
+#[cfg(feature = "wifi")]
 use {embassy_futures::select::Either, embassy_net::IpListenEndpoint};
 
 static WATCH: Watch<CriticalSectionRawMutex, DetectionStatus, 2> = Watch::new();
@@ -72,10 +74,12 @@ async fn main(spawner: Spawner) {
     #[cfg(feature = "wifi")]
     let (mut ap_server_socket, mut sta_server_socket) = wifi::wifi_init(
         spawner,
-        peripherals.TIMG0,
-        peripherals.RNG,
-        peripherals.RADIO_CLK,
-        peripherals.WIFI,
+        WifiPeripherals {
+            timg0: peripherals.TIMG0,
+            rng: peripherals.RNG,
+            radio_clk: peripherals.RADIO_CLK,
+            wifi: peripherals.WIFI,
+        },
         &mut ap_server_rx_buffer,
         &mut ap_server_tx_buffer,
         &mut sta_server_rx_buffer,

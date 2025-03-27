@@ -3,13 +3,13 @@ use embassy_executor::Spawner;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::{Runner, StackResources, StaticConfigV4};
 use embassy_time::{Duration, Timer};
-use esp_hal::peripherals::{RADIO_CLK, RNG, TIMG0, WIFI};
 use esp_hal::rng::Rng;
 use esp_wifi::wifi::{
     AccessPointConfiguration, ClientConfiguration, Configuration, WifiController, WifiDevice,
     WifiEvent, WifiState,
 };
 use esp_wifi::{init, EspWifiController};
+use falling_object_helmet_rs::WifiPeripherals;
 use log::{error, info};
 use smoltcp::wire::Ipv4Cidr;
 
@@ -27,10 +27,7 @@ macro_rules! mk_static {
 
 pub async fn wifi_init<'a>(
     spawner: Spawner,
-    timg0: TIMG0,
-    rng: RNG,
-    radio_clk: RADIO_CLK,
-    wifi: WIFI,
+    wifi_peripherals: WifiPeripherals,
     ap_server_rx_buffer: &'a mut [u8; 1536],
     ap_server_tx_buffer: &'a mut [u8; 1536],
     sta_server_rx_buffer: &'a mut [u8; 1536],
@@ -38,16 +35,16 @@ pub async fn wifi_init<'a>(
 ) -> (TcpSocket<'a>, TcpSocket<'a>) {
     esp_alloc::heap_allocator!(72 * 1024);
 
-    let timer_group1 = esp_hal::timer::timg::TimerGroup::new(timg0);
-    let mut rng = Rng::new(rng);
+    let timer_group1 = esp_hal::timer::timg::TimerGroup::new(wifi_peripherals.timg0);
+    let mut rng = Rng::new(wifi_peripherals.rng);
 
     let esp_wifi_ctrl = &*mk_static!(
         EspWifiController<'static>,
-        init(timer_group1.timer0, rng, radio_clk).unwrap()
+        init(timer_group1.timer0, rng, wifi_peripherals.radio_clk).unwrap()
     );
 
     let (wifi_ap_device, wifi_sta_device, mut controller) =
-        esp_wifi::wifi::new_ap_sta(esp_wifi_ctrl, wifi).unwrap();
+        esp_wifi::wifi::new_ap_sta(esp_wifi_ctrl, wifi_peripherals.wifi).unwrap();
 
     let ap_config = embassy_net::Config::ipv4_static(StaticConfigV4 {
         address: Ipv4Cidr::new(Ipv4Addr::new(192, 168, 2, 1), 24),

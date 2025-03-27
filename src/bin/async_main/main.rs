@@ -9,6 +9,7 @@ mod wifi;
 
 use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::signal::Signal;
 use embassy_sync::watch::Watch;
 use embassy_time::{Duration, Timer};
 use esp_alloc as _;
@@ -31,20 +32,19 @@ use crate::alert::haptic_task;
 use crate::uart::read_uart;
 use alert::led_strip_alert_task;
 use alert::NUM_LEDS;
-#[cfg(not(feature = "wifi"))]
-use embassy_time::Instant;
 use esp_hal::peripherals::Peripherals;
+#[cfg(not(feature = "wifi"))]
+use esp_println::println;
 use falling_object_helmet_rs::DetectionStatus;
+use falling_object_helmet_rs::SensorData;
 #[cfg(feature = "wifi")]
-use {
-    embassy_futures::select::Either, embassy_net::IpListenEndpoint, embassy_sync::signal::Signal,
-    falling_object_helmet_rs::SensorData,
-};
+use falling_object_helmet_rs::WifiPeripherals;
+#[cfg(feature = "wifi")]
+use {embassy_futures::select::Either, embassy_net::IpListenEndpoint};
 
 static WATCH: Watch<CriticalSectionRawMutex, DetectionStatus, 2> = Watch::new();
 
-#[cfg(feature = "wifi")]
-static SENSOR_SIGNALS: Signal<CriticalSectionRawMutex, SensorData> = Signal::new();
+static SENSOR_SIGNAL: Signal<CriticalSectionRawMutex, SensorData> = Signal::new();
 
 #[esp_hal_embassy::main]
 async fn main(spawner: Spawner) {
@@ -74,10 +74,12 @@ async fn main(spawner: Spawner) {
     #[cfg(feature = "wifi")]
     let (mut ap_server_socket, mut sta_server_socket) = wifi::wifi_init(
         spawner,
-        peripherals.TIMG0,
-        peripherals.RNG,
-        peripherals.RADIO_CLK,
-        peripherals.WIFI,
+        WifiPeripherals {
+            timg0: peripherals.TIMG0,
+            rng: peripherals.RNG,
+            radio_clk: peripherals.RADIO_CLK,
+            wifi: peripherals.WIFI,
+        },
         &mut ap_server_rx_buffer,
         &mut ap_server_tx_buffer,
         &mut sta_server_rx_buffer,
@@ -139,18 +141,17 @@ async fn main(spawner: Spawner) {
     let builtin_led = Output::new(peripherals.GPIO2, Level::Low);
 
     // TODO: Spawn some tasks
-    #[cfg(feature = "wifi")]
-    let _ = spawner.spawn(read_uart(tx, &SENSOR_SIGNALS, builtin_led));
-    #[cfg(not(feature = "wifi"))]
-    let _ = spawner.spawn(read_uart(tx, builtin_led));
+
+    let _ = spawner.spawn(read_uart(tx, &SENSOR_SIGNAL, builtin_led));
     let _ = spawner.spawn(haptic_task(haptic));
     // let _ = spawner.spawn(read_mpu_data(i2c));
     let _ = spawner.spawn(led_strip_alert_task(ws));
 
     #[cfg(not(feature = "wifi"))]
     loop {
-        info!("{} ms | Hello world!", Instant::now().as_millis());
-        Timer::after_millis(1000).await;
+        let SensorData { velocity, time } = SENSOR_SIGNAL.wait().await;
+
+        println!("{time}, {velocity}");
     }
 
     #[cfg(feature = "wifi")]
@@ -182,7 +183,7 @@ async fn main(spawner: Spawner) {
 
         // send sensor data to client
         loop {
-            let sensor_data = SENSOR_SIGNALS.wait().await;
+            let sensor_data = SENSOR_SIGNAL.wait().await;
 
             //info!("{},{}", sensor_data.time, sensor_data.velocity);
 

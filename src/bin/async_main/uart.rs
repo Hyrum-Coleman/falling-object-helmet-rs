@@ -1,9 +1,7 @@
 use crate::WATCH;
 use core::ffi::CStr;
 
-#[cfg(feature = "wifi")]
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-#[cfg(feature = "wifi")]
 use embassy_sync::signal::Signal;
 use embassy_sync::watch::DynSender;
 use esp_hal::gpio::Output;
@@ -11,7 +9,7 @@ use esp_hal::uart::UartRx;
 use esp_hal::Async;
 use falling_object_helmet_rs::{DetectionStatus, SensorData};
 use heapless::Vec;
-use log::{error, info, warn};
+use log::{error, warn};
 
 const VELOCITY_THRESHOLD: f32 = 1.0;
 
@@ -66,15 +64,16 @@ async fn send_alert(sensor_data: SensorData, sender: &DynSender<'static, Detecti
 
 #[cfg(not(feature = "wifi"))]
 #[embassy_executor::task]
-pub async fn read_uart(mut uart: UartRx<'static, Async>, mut builtin_led: Output<'static>) {
+pub async fn read_uart(
+    mut uart: UartRx<'static, Async>,
+    signal: &'static Signal<CriticalSectionRawMutex, SensorData>,
+    mut builtin_led: Output<'static>,
+) {
     let sender = WATCH.dyn_sender();
 
     loop {
         if let Some(sensor_data) = process_uart_read(&mut uart, &mut builtin_led).await {
-            info!(
-                "Time: {} -- Velocity Reading: {}",
-                sensor_data.time, sensor_data.velocity
-            );
+            signal.signal(sensor_data);
 
             send_alert(sensor_data, &sender).await;
         }
@@ -85,19 +84,14 @@ pub async fn read_uart(mut uart: UartRx<'static, Async>, mut builtin_led: Output
 #[embassy_executor::task]
 pub async fn read_uart(
     mut uart: UartRx<'static, Async>,
-    signals: &'static Signal<CriticalSectionRawMutex, SensorData>,
+    signal: &'static Signal<CriticalSectionRawMutex, SensorData>,
     mut builtin_led: Output<'static>,
 ) {
     let sender = WATCH.dyn_sender();
 
     loop {
         if let Some(sensor_data) = process_uart_read(&mut uart, &mut builtin_led).await {
-            info!(
-                "Time: {} -- Velocity Reading: {}",
-                sensor_data.time, sensor_data.velocity
-            );
-
-            signals.signal(sensor_data.clone());
+            signal.signal(sensor_data);
 
             send_alert(sensor_data, &sender).await;
         }

@@ -1,6 +1,6 @@
 #![no_std]
 
-#[cfg(feature="wifi")]
+#[cfg(feature = "wifi")]
 use esp_hal::peripherals::{RADIO_CLK, RNG, TIMG0, WIFI};
 
 #[derive(Debug, Clone, Copy)]
@@ -20,7 +20,7 @@ impl SensorData {
     }
 }
 
-#[cfg(feature="wifi")]
+#[cfg(feature = "wifi")]
 pub struct WifiPeripherals {
     pub timg0: TIMG0,
     pub rng: RNG,
